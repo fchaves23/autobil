@@ -1,4 +1,4 @@
-import type { Entry, EntryKind, Reminder, Vehicle } from './types'
+import { NOT_FUEL, type Entry, type EntryKind, type Reminder, type Vehicle } from './types'
 import { addDays, addMonths, daysBetween, monthKey, parseDate, toISODate } from './format'
 
 export function currentOdometer(vehicle: Vehicle, entries: Entry[]) {
@@ -15,7 +15,7 @@ export interface ConsumptionPoint {
 // Método do tanque cheio: km rodados entre dois tanques cheios ÷ litros colocados depois do primeiro.
 export function consumption(entries: Entry[]) {
   const fills = entries
-    .filter((e) => e.kind === 'fuel' && e.odometer && e.liters)
+    .filter((e) => e.kind === 'fuel' && !NOT_FUEL.has(e.fuel_type ?? '') && e.odometer && e.liters)
     .sort((a, b) => a.odometer! - b.odometer!)
   const points: ConsumptionPoint[] = []
   let lastFullOdo: number | null = null
@@ -85,7 +85,7 @@ export function costPerKm(entries: Entry[]) {
 export function byCategory(entries: Entry[]) {
   const map = new Map<string, { label: string; kind: EntryKind; amount: number }>()
   for (const e of entries) {
-    const label = e.kind === 'fuel' ? 'Combustível' : e.category || 'Outros'
+    const label = e.kind === 'fuel' ? (NOT_FUEL.has(e.fuel_type ?? '') ? 'Arla 32' : 'Combustível') : e.category || 'Outros'
     const cur = map.get(label) ?? { label, kind: e.kind, amount: 0 }
     cur.amount += e.amount
     map.set(label, cur)

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BellRing, CarFront, ChartColumn, ChevronDown, House, KeyRound, List, LogOut, Plus, UserPlus, Warehouse } from 'lucide-react'
+import { BellRing, CarFront, ChartColumn, ChevronDown, House, KeyRound, List, LogOut, MapPinned, Plus, UserPlus, Warehouse } from 'lucide-react'
 import { api, type VehicleWithRole } from './lib/api'
 import { currentOdometer } from './lib/calc'
 import { initials } from './lib/format'
 import { getPendingCode, setPendingCode } from './lib/pending-code'
-import type { Entry, EntryKind, Profile, Reminder } from './lib/types'
+import type { Entry, EntryKind, Profile, Reminder, Trip } from './lib/types'
 import { EntryForm } from './components/EntryForm'
 import { AddDriverSheet } from './components/AddDriver'
 import { JoinForm, NewPasswordForm, ProfileForm, ReminderForm, VehicleForm } from './components/Forms'
@@ -15,8 +15,9 @@ import { History } from './screens/History'
 import { Home } from './screens/Home'
 import { Reminders } from './screens/Reminders'
 import { Reports } from './screens/Reports'
+import { TripForm, Trips } from './screens/Trips'
 
-type Tab = 'home' | 'history' | 'reminders' | 'reports' | 'garage'
+type Tab = 'home' | 'history' | 'trips' | 'reminders' | 'reports' | 'garage'
 type SheetState =
   | { type: 'entry'; kind: EntryKind; entry?: Entry }
   | { type: 'reminder'; reminder?: Reminder }
@@ -24,6 +25,7 @@ type SheetState =
   | { type: 'join' }
   | { type: 'profile' }
   | { type: 'driver'; vehicle: VehicleWithRole }
+  | { type: 'trip'; trip?: Trip }
   | null
 
 const VEHICLE_KEY = 'autobil-current-vehicle'
@@ -38,6 +40,7 @@ const readStored = () => {
 const NAV: { tab: Tab; label: string; icon: typeof House }[] = [
   { tab: 'home', label: 'Início', icon: House },
   { tab: 'history', label: 'Histórico', icon: List },
+  { tab: 'trips', label: 'Viagens', icon: MapPinned },
   { tab: 'reminders', label: 'Lembretes', icon: BellRing },
   { tab: 'reports', label: 'Relatórios', icon: ChartColumn },
   { tab: 'garage', label: 'Garagem', icon: Warehouse },
@@ -49,6 +52,8 @@ export default function App() {
   const [currentId, setCurrentId] = useState<string | null>(readStored)
   const [entries, setEntries] = useState<Entry[]>([])
   const [reminders, setReminders] = useState<Reminder[]>([])
+  const [trips, setTrips] = useState<Trip[]>([])
+  const [reportTrip, setReportTrip] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('home')
   const [sheet, setSheet] = useState<SheetState>(null)
   const [toast, setToast] = useState('')
@@ -104,11 +109,17 @@ export default function App() {
     if (!currentId) {
       setEntries([])
       setReminders([])
+      setTrips([])
       return
     }
-    const [e, r] = await Promise.all([api.listEntries(currentId), api.listReminders(currentId)])
+    const [e, r, t] = await Promise.all([
+      api.listEntries(currentId),
+      api.listReminders(currentId),
+      api.listTrips(currentId).catch(() => [] as Trip[]), // sem a atualização 003 do banco, segue sem viagens
+    ])
     setEntries(e)
     setReminders(r)
+    setTrips(t)
   }, [currentId])
 
   useEffect(() => {
@@ -145,6 +156,7 @@ export default function App() {
   }
 
   function go(t: Tab) {
+    setReportTrip(null)
     setTab(t)
     setMenu(null)
     window.scrollTo({ top: 0 })
@@ -165,6 +177,8 @@ export default function App() {
           kind={sheet.kind}
           entry={sheet.entry}
           reminders={reminders}
+          trips={trips}
+          lastFuelType={entries.find((x) => x.kind === 'fuel' && x.fuel_type)?.fuel_type ?? null}
           odometer={odometer}
           onClose={() => setSheet(null)}
           onSaved={afterSave}
@@ -172,6 +186,9 @@ export default function App() {
       )}
       {sheet?.type === 'reminder' && vehicle && (
         <ReminderForm vehicleId={vehicle.id} reminder={sheet.reminder} odometer={odometer} onClose={() => setSheet(null)} onSaved={afterSave} />
+      )}
+      {sheet?.type === 'trip' && vehicle && (
+        <TripForm vehicleId={vehicle.id} trip={sheet.trip} onClose={() => setSheet(null)} onSaved={afterSave} />
       )}
       {sheet?.type === 'vehicle' && <VehicleForm vehicle={sheet.vehicle} onClose={() => setSheet(null)} onSaved={afterSave} />}
       {sheet?.type === 'join' && (
@@ -369,6 +386,8 @@ export default function App() {
                 onAddDriver={() => setSheet({ type: 'driver', vehicle })}
                 entries={entries}
                 reminders={reminders}
+                trips={trips}
+                onOpenTrip={() => go('trips')}
                 odometer={odometer}
                 onAdd={(kind) => setSheet({ type: 'entry', kind })}
                 onEdit={(entry) => setSheet({ type: 'entry', kind: entry.kind, entry })}
@@ -388,7 +407,22 @@ export default function App() {
                 onChanged={(m) => afterSave(m)}
               />
             )}
-            {tab === 'reports' && <Reports entries={entries} />}
+            {tab === 'trips' && (
+              <Trips
+                trips={trips}
+                entries={entries}
+                onAdd={() => setSheet({ type: 'trip' })}
+                onEdit={(trip) => setSheet({ type: 'trip', trip })}
+                onReport={(trip) => {
+                  go('reports')
+                  setReportTrip(trip.id)
+                }}
+                onChanged={(m) => afterSave(m)}
+              />
+            )}
+            {tab === 'reports' && (
+              <Reports entries={entries} trips={trips} vehicle={vehicle} initialTrip={reportTrip} />
+            )}
             {tab === 'garage' && (
               <Garage
                 user={user}
@@ -411,8 +445,7 @@ export default function App() {
 
         <nav className="bottom-nav" aria-label="Menu">
           <div className="bottom-nav-inner">
-            {NAV.filter((n) => n.tab !== 'reminders')
-              .slice(0, 2)
+            {NAV.filter((n) => n.tab === 'home' || n.tab === 'history')
               .map(({ tab: t, label, icon: Icon }) => (
                 <button key={t} className="nav-btn" aria-current={tab === t ? 'page' : undefined} onClick={() => go(t)}>
                   <Icon size={22} />
@@ -422,7 +455,7 @@ export default function App() {
             <button className="nav-fab" aria-label="Novo lançamento" onClick={() => setSheet({ type: 'entry', kind: 'fuel' })}>
               <Plus size={26} />
             </button>
-            {NAV.filter((n) => n.tab === 'reports' || n.tab === 'garage').map(({ tab: t, label, icon: Icon }) => (
+            {NAV.filter((n) => n.tab === 'trips' || n.tab === 'reports').map(({ tab: t, label, icon: Icon }) => (
               <button key={t} className="nav-btn" aria-current={tab === t ? 'page' : undefined} onClick={() => go(t)}>
                 <Icon size={22} />
                 {label}

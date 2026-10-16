@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { ChartColumn } from 'lucide-react'
+import { ChartColumn, FileSpreadsheet, FileText, MapPinned } from 'lucide-react'
 import { buckets, byCategory, consumption, costPerKm, daysInRange, inRange, sumBy, type Group } from '../lib/calc'
 import { addDays, addMonths, brl, dateFull, num, toISODate, today } from '../lib/format'
-import type { Entry, EntryKind } from '../lib/types'
+import { NOT_FUEL, type Entry, type EntryKind, type Trip, type Vehicle } from '../lib/types'
+import type { ReportExport } from '../lib/export'
 import { CategoryBars, ConsumptionChart, Legend, MonthlyChart } from '../components/Charts'
 import { Empty, Field } from '../components/ui'
 
@@ -56,26 +57,48 @@ function presetRange(p: Preset): [string, string] {
 const autoGroup = (days: number): Group => (days <= 31 ? 'day' : days <= 120 ? 'week' : 'month')
 const allowed = (days: number): Group[] => (days <= 62 ? ['day', 'week', 'month'] : days <= 400 ? ['week', 'month'] : ['month'])
 
-export function Reports({ entries }: { entries: Entry[] }) {
+export function Reports({
+  entries,
+  trips,
+  vehicle,
+  initialTrip,
+}: {
+  entries: Entry[]
+  trips: Trip[]
+  vehicle: Vehicle | null
+  initialTrip: string | null
+}) {
+  const [tripFilter, setTripFilter] = useState<string>(initialTrip ?? 'all')
+  const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null)
+  const [exportError, setExportError] = useState('')
+  const trip = trips.find((t) => t.id === tripFilter) ?? null
   const [preset, setPreset] = useState<Preset>('6m')
   const [custom, setCustom] = useState<[string, string]>(() => presetRange('30d'))
   const [groupChoice, setGroupChoice] = useState<Group | null>(null)
   const [kind, setKind] = useState<KindFilter>('all')
   const [view, setView] = useState<'chart' | 'table'>('chart')
 
-  const [from, to] = preset === 'custom' ? (custom[0] <= custom[1] ? custom : [custom[1], custom[0]]) : presetRange(preset)
+  const [from, to] = trip
+    ? [trip.start_date, trip.end_date ?? (today() > trip.start_date ? today() : trip.start_date)]
+    : preset === 'custom'
+      ? custom[0] <= custom[1]
+        ? custom
+        : [custom[1], custom[0]]
+      : presetRange(preset)
   const days = daysInRange(from, to)
   const options = allowed(days)
   const group = groupChoice && options.includes(groupChoice) ? groupChoice : autoGroup(days)
 
-  const list = useMemo(() => inRange(entries, from, to).filter((e) => kind === 'all' || e.kind === kind), [entries, from, to, kind])
+  // Numa viagem valem os lançamentos marcados nela (mesmo fora das datas); no geral, o período escolhido
+  const scope = useMemo(() => (trip ? entries.filter((e) => e.trip_id === trip.id) : inRange(entries, from, to)), [entries, trip, from, to])
+  const list = useMemo(() => scope.filter((e) => kind === 'all' || e.kind === kind), [scope, kind])
   const data = useMemo(() => buckets(list, from, to, group), [list, from, to, group])
 
   const total = sumBy(list)
-  const fuel = list.filter((e) => e.kind === 'fuel')
+  const fuel = list.filter((e) => e.kind === 'fuel' && !NOT_FUEL.has(e.fuel_type ?? ''))
   const liters = fuel.reduce((s, e) => s + (e.liters ?? 0), 0)
   // Consumo e km usam todos os abastecimentos do período, mesmo com filtro de tipo
-  const periodAll = inRange(entries, from, to)
+  const periodAll = scope
   const cons = consumption(periodAll)
   const cpk = costPerKm(periodAll)
   const odos = periodAll.filter((e) => e.odometer).map((e) => e.odometer!)
@@ -83,11 +106,84 @@ export function Reports({ entries }: { entries: Entry[] }) {
   const avgLabel = days >= 56 ? 'Média por mês' : days >= 14 ? 'Média por semana' : 'Média por dia'
   const avgValue = days >= 56 ? total / (days / 30.44) : days >= 14 ? total / (days / 7) : total / days
 
+  async function runExport(format: 'xlsx' | 'pdf') {
+    if (!vehicle) return
+    setExporting(format)
+    setExportError('')
+    const payload: ReportExport = {
+      vehicleName: vehicle.name,
+      vehiclePlate: vehicle.plate,
+      title: trip ? `Viagem ${trip.name}` : 'Relatório geral',
+      from,
+      to,
+      filters: [
+        kind === 'all' ? 'Todos os gastos' : kind === 'fuel' ? 'Só combustível' : kind === 'expense' ? 'Só despesas' : 'Só serviços',
+        `agrupado por ${GROUP_LABEL[group].toLowerCase()}`,
+        `${list.length} lançamentos`,
+      ].join(' · '),
+      summary: [
+        ['Total gasto', brl(total)],
+        [avgLabel, brl(avgValue)],
+        ['Combustível', brl(sumBy(list, 'fuel'))],
+        ['Serviços', brl(sumBy(list, 'service'))],
+        ['Despesas', brl(sumBy(list, 'expense'))],
+        ['Km rodados', driven !== null ? `${num(driven)} km` : '—'],
+        ['Custo por km', cpk !== null ? brl(cpk) : '—'],
+        ['Consumo médio', cons.average !== null ? `${num(cons.average, 1)} km/l` : '—'],
+        ['Litros abastecidos', `${num(liters, 1)} L`],
+        ['Preço médio do litro', liters ? brl(sumBy(fuel) / liters) : '—'],
+      ],
+      groupLabel: GROUP_LABEL[group],
+      buckets: data,
+      categories: byCategory(list),
+      entries: list,
+      tripName: (id) => trips.find((t) => t.id === id)?.name ?? '',
+    }
+    try {
+      const mod = await import('../lib/export')
+      await (format === 'xlsx' ? mod.exportXlsx(payload) : mod.exportPdf(payload))
+    } catch (err) {
+      setExportError(`Não foi possível gerar o arquivo: ${(err as Error).message}`)
+    } finally {
+      setExporting(null)
+    }
+  }
+
   return (
     <div className="page">
-      <h1 className="page-title">Relatórios</h1>
+      <div className="section-head" style={{ flexWrap: 'wrap' }}>
+        <h1 className="page-title">Relatórios</h1>
+        <div className="share-actions">
+          <button className="btn btn-sm btn-ghost" disabled={!list.length || !!exporting} onClick={() => runExport('xlsx')}>
+            <FileSpreadsheet size={16} /> {exporting === 'xlsx' ? 'Gerando…' : 'Excel'}
+          </button>
+          <button className="btn btn-sm btn-ghost" disabled={!list.length || !!exporting} onClick={() => runExport('pdf')}>
+            <FileText size={16} /> {exporting === 'pdf' ? 'Gerando…' : 'PDF'}
+          </button>
+        </div>
+      </div>
+      {exportError && <div className="error">{exportError}</div>}
 
       <section className="card stack">
+        {trips.length > 0 && (
+          <Field label="Viagem">
+            <select id="report-trip" className="select" value={tripFilter} onChange={(e) => setTripFilter(e.target.value)}>
+              <option value="all">Geral do carro (todos os lançamentos)</option>
+              {trips.map((t) => (
+                <option key={t.id} value={t.id}>
+                  Viagem: {t.name}
+                  {!t.end_date ? ' (em andamento)' : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {trip ? (
+          <p className="notice" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <MapPinned size={16} /> Mostrando só os lançamentos da viagem {trip.name}.
+          </p>
+        ) : (
         <div className="chips" role="group" aria-label="Período">
           {PRESETS.map((p) => (
             <button
@@ -103,8 +199,9 @@ export function Reports({ entries }: { entries: Entry[] }) {
             </button>
           ))}
         </div>
+        )}
 
-        {preset === 'custom' && (
+        {!trip && preset === 'custom' && (
           <div className="form-grid">
             <Field label="De">
               <input id="report-from" className="input" type="date" value={custom[0]} max={today()} onChange={(e) => e.target.value && setCustom([e.target.value, custom[1]])} />

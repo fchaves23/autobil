@@ -1,7 +1,20 @@
 import { useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import { formatIntInput, formatMoneyInput, num, parseNumber, today } from '../lib/format'
-import { EXPENSE_CATEGORIES, FUEL_TYPES, KIND_LABEL, SERVICE_CATEGORIES, type Entry, type EntryKind, type Reminder, type Vehicle } from '../lib/types'
+import {
+  EXPENSE_CATEGORIES,
+  FUEL_KINDS,
+  FUEL_KINDS_BY_ENGINE,
+  KIND_LABEL,
+  NOT_FUEL,
+  SERVICE_CATEGORIES,
+  fuelLabel,
+  type Entry,
+  type EntryKind,
+  type Reminder,
+  type Trip,
+  type Vehicle,
+} from '../lib/types'
 import { DeleteButton, Field, KindIcon, Sheet } from './ui'
 
 interface Props {
@@ -9,6 +22,8 @@ interface Props {
   kind: EntryKind
   entry?: Entry
   reminders: Reminder[]
+  trips: Trip[]
+  lastFuelType: string | null
   odometer: number
   onClose: () => void
   onSaved: (message: string) => void
@@ -17,7 +32,12 @@ interface Props {
 const str = (n: number | null | undefined, digits?: number) =>
   n === null || n === undefined ? '' : digits !== undefined ? n.toFixed(digits).replace('.', ',') : String(n).replace('.', ',')
 
-export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odometer, onClose, onSaved }: Props) {
+// Viagem que está valendo numa data (a mais recente que já começou e não terminou)
+export function tripForDate(trips: Trip[], date: string) {
+  return trips.find((t) => t.start_date <= date && (!t.end_date || t.end_date >= date)) ?? null
+}
+
+export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips, lastFuelType, odometer, onClose, onSaved }: Props) {
   const [kind, setKind] = useState<EntryKind>(entry?.kind ?? initialKind)
   const [date, setDate] = useState(entry?.date ?? today())
   const [odo, setOdo] = useState(entry?.odometer != null ? formatIntInput(String(entry.odometer)) : '')
@@ -25,8 +45,12 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
   const [liters, setLiters] = useState(str(entry?.liters))
   const [price, setPrice] = useState(entry?.price_per_liter != null ? formatMoneyInput(String(entry.price_per_liter), 3) : '')
   const [edited, setEdited] = useState<('amount' | 'liters' | 'price')[]>(entry ? ['amount', 'price'] : [])
-  const defaultFuel = vehicle.fuel_type === 'flex' ? 'gasolina' : vehicle.fuel_type
-  const [fuelType, setFuelType] = useState(entry?.fuel_type ?? defaultFuel)
+  const suggested = FUEL_KINDS_BY_ENGINE[vehicle.fuel_type] ?? Object.keys(FUEL_KINDS)
+  // Novo abastecimento já vem com o último combustível usado neste carro
+  const [fuelType, setFuelType] = useState(entry?.fuel_type ?? (lastFuelType && FUEL_KINDS[lastFuelType] ? lastFuelType : suggested[0]))
+  const [showAllFuels, setShowAllFuels] = useState(false)
+  const [tripId, setTripId] = useState<string>(entry ? entry.trip_id ?? '' : tripForDate(trips, today())?.id ?? '')
+  const [tripTouched, setTripTouched] = useState(!!entry)
   const [fullTank, setFullTank] = useState(entry?.full_tank ?? true)
   const [category, setCategory] = useState(entry?.category ?? '')
   const [description, setDescription] = useState(entry?.description ?? '')
@@ -34,7 +58,9 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const fuelOptions = vehicle.fuel_type === 'flex' ? ['gasolina', 'etanol'] : [vehicle.fuel_type]
+  const isArla = kind === 'fuel' && NOT_FUEL.has(fuelType)
+  const extraFuels = Object.keys(FUEL_KINDS).filter((k) => !suggested.includes(k) && k !== 'diesel')
+  const fuelOptions = [...suggested, ...(showAllFuels ? extraFuels : extraFuels.filter((k) => k === fuelType))]
 
   // Preenche o terceiro campo do abastecimento a partir dos dois últimos editados
   function onFuelField(field: 'amount' | 'liters' | 'price', value: string) {
@@ -69,7 +95,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
     const p = parseNumber(price)
     if (!a || a <= 0) return setError('Informe o valor.')
     if (kind === 'fuel' && (!l || !p)) return setError('Informe litros e preço por litro (ou o total).')
-    if (kind === 'fuel' && !o) return setError('Informe o hodômetro: é com ele que calculamos o consumo.')
+    if (kind === 'fuel' && !isArla && !o) return setError('Informe o hodômetro: é com ele que calculamos o consumo.')
     if (kind !== 'fuel' && !category) return setError('Escolha uma categoria.')
     setBusy(true)
     try {
@@ -83,9 +109,10 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
           liters: kind === 'fuel' ? l : null,
           price_per_liter: kind === 'fuel' ? p : null,
           fuel_type: kind === 'fuel' ? fuelType : null,
-          full_tank: kind === 'fuel' ? fullTank : true,
-          category: kind === 'fuel' ? FUEL_TYPES[fuelType] ?? fuelType : category,
+          full_tank: kind === 'fuel' && !isArla ? fullTank : true,
+          category: kind === 'fuel' ? fuelLabel(fuelType) : category,
           description: description.trim(),
+          trip_id: tripId || null,
         },
         entry?.id,
       )
@@ -123,13 +150,22 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
           </div>
         )}
 
-        {kind === 'fuel' && fuelOptions.length > 1 && (
-          <div className="chips" role="group" aria-label="Combustível">
-            {fuelOptions.map((f) => (
-              <button key={f} type="button" className="chip" aria-pressed={fuelType === f} onClick={() => setFuelType(f)}>
-                {FUEL_TYPES[f]}
-              </button>
-            ))}
+        {kind === 'fuel' && (
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="label">Combustível</span>
+            <div className="chips" role="group" aria-label="Combustível">
+              {fuelOptions.map((f) => (
+                <button key={f} type="button" className="chip" aria-pressed={fuelType === f} onClick={() => setFuelType(f)}>
+                  {FUEL_KINDS[f]}
+                </button>
+              ))}
+              {!showAllFuels && extraFuels.some((k) => k !== fuelType) && (
+                <button type="button" className="chip chip-more" onClick={() => setShowAllFuels(true)}>
+                  Outros…
+                </button>
+              )}
+            </div>
+            {isArla && <span className="hint">Arla 32 entra no custo, mas não conta no consumo (km/l).</span>}
           </div>
         )}
 
@@ -146,9 +182,20 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
 
         <div className="form-grid">
           <Field label="Data">
-            <input id="entry-date" className="input" type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} required />
+            <input
+              id="entry-date"
+              className="input"
+              type="date"
+              value={date}
+              max={today()}
+              onChange={(e) => {
+                setDate(e.target.value)
+                if (!tripTouched) setTripId(tripForDate(trips, e.target.value)?.id ?? '')
+              }}
+              required
+            />
           </Field>
-          <Field label={kind === 'fuel' ? 'Hodômetro' : 'Hodômetro (opcional)'}>
+          <Field label={kind === 'fuel' && !isArla ? 'Hodômetro' : 'Hodômetro (opcional)'}>
             <div className="input-wrap">
               <input id="entry-odo" className="input has-suffix num" inputMode="numeric" placeholder={num(odometer)} value={odo} onChange={(e) => setOdo(e.target.value)} onBlur={() => setOdo(formatIntInput(odo))} />
               <span className="suffix">km</span>
@@ -189,7 +236,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
           </Field>
         </div>
 
-        {kind === 'fuel' && (
+        {kind === 'fuel' && !isArla && (
           <label className="switch">
             <span>
               <strong>Tanque cheio</strong>
@@ -207,6 +254,28 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
               {reminders.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.title}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {trips.length > 0 && (
+          <Field label="Viagem" hint={tripId ? 'Conta no total do carro e também nesta viagem.' : 'Fica só nos números gerais do carro.'}>
+            <select
+              id="entry-trip"
+              className="select"
+              value={tripId}
+              onChange={(e) => {
+                setTripId(e.target.value)
+                setTripTouched(true)
+              }}
+            >
+              <option value="">Nenhuma viagem</option>
+              {trips.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {!t.end_date ? ' (em andamento)' : ''}
                 </option>
               ))}
             </select>

@@ -1,7 +1,7 @@
 // Modo demonstração: tudo fica no navegador (localStorage), com dados de exemplo.
 // Usado quando o .env.local não tem as chaves do Supabase.
 import type { Api, VehicleWithRole } from './api'
-import type { Entry, Invite, Profile, Reminder, Role, Vehicle } from './types'
+import type { Entry, Invite, Profile, Reminder, Role, Trip, Vehicle } from './types'
 import { addDays, toISODate } from './format'
 
 interface Store {
@@ -12,10 +12,11 @@ interface Store {
   invites: Invite[]
   entries: Entry[]
   reminders: Reminder[]
+  trips: Trip[]
 }
 
 const KEY = 'autobil-demo-v1'
-const empty = (): Store => ({ user: null, profiles: [], vehicles: [], members: [], invites: [], entries: [], reminders: [] })
+const empty = (): Store => ({ user: null, profiles: [], vehicles: [], members: [], invites: [], entries: [], reminders: [], trips: [] })
 
 function load(): Store {
   try {
@@ -78,7 +79,7 @@ function seed(user: Profile) {
   const add = (e: Partial<Entry> & Pick<Entry, 'kind' | 'date' | 'amount'>) =>
     store.entries.push({
       id: id(), vehicle_id: v.id, user_id: rnd() > 0.7 ? driver.id : user.id, odometer: null, liters: null,
-      price_per_liter: null, fuel_type: null, full_tank: true, category: '', description: '', created_at: now(), ...e,
+      price_per_liter: null, fuel_type: null, full_tank: true, category: '', description: '', trip_id: null, created_at: now(), ...e,
     })
 
   for (let d = 0; d <= 240; d += 8 + Math.floor(rnd() * 5)) {
@@ -302,6 +303,30 @@ export function createDemoApi(): Api {
 
     async deleteReminder(rid) {
       store.reminders = store.reminders.filter((r) => r.id !== rid)
+      save()
+    },
+
+    async listTrips(vid) {
+      return store.trips.filter((t) => t.vehicle_id === vid).sort((a, b) => b.start_date.localeCompare(a.start_date))
+    },
+
+    async saveTrip(input, tid) {
+      if (tid) {
+        Object.assign(store.trips.find((t) => t.id === tid)!, input)
+        save()
+        return tid
+      }
+      const t: Trip = { ...input, id: id(), created_at: now() }
+      store.trips.push(t)
+      save()
+      return t.id
+    },
+
+    async deleteTrip(tid) {
+      store.trips = store.trips.filter((t) => t.id !== tid)
+      store.entries.forEach((e) => {
+        if (e.trip_id === tid) e.trip_id = null
+      })
       save()
     },
   }

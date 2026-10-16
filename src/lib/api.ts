@@ -1,4 +1,4 @@
-import type { Entry, EntryInput, Invite, Member, Profile, Reminder, ReminderInput, Role, Vehicle, VehicleInput } from './types'
+import type { Entry, EntryInput, Invite, Member, Profile, Reminder, ReminderInput, Role, Trip, TripInput, Vehicle, VehicleInput } from './types'
 import { createSupabaseApi } from './api-supabase'
 import { createDemoApi } from './api-demo'
 
@@ -40,6 +40,10 @@ export interface Api {
   listReminders(vehicleId: string): Promise<Reminder[]>
   saveReminder(input: ReminderInput, id?: string): Promise<void>
   deleteReminder(id: string): Promise<void>
+  // Viagens
+  listTrips(vehicleId: string): Promise<Trip[]>
+  saveTrip(input: TripInput, id?: string): Promise<string>
+  deleteTrip(id: string): Promise<void>
 }
 
 const url = import.meta.env.VITE_SUPABASE_URL

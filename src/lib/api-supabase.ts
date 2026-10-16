@@ -1,6 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import type { Api, VehicleWithRole } from './api'
-import type { Entry, Member, Profile, Reminder, Vehicle } from './types'
+import type { Entry, Member, Profile, Reminder, Trip, Vehicle } from './types'
 
 // Converte erros do Supabase em mensagens que fazem sentido para quem usa o app.
 function friendly(message: string): string {
@@ -235,6 +235,25 @@ export function createSupabaseApi(url: string, key: string): Api {
 
     async deleteReminder(id) {
       check(await sb.from('reminders').delete().eq('id', id))
+    },
+
+    async listTrips(vehicleId) {
+      return check(
+        await sb.from('trips').select('*').eq('vehicle_id', vehicleId).order('start_date', { ascending: false }),
+      ) as Trip[]
+    },
+
+    async saveTrip(input, id) {
+      if (id) {
+        check(await sb.from('trips').update(input).eq('id', id))
+        return id
+      }
+      const row = check(await sb.from('trips').insert(input).select('id').single()) as { id: string }
+      return row.id
+    },
+
+    async deleteTrip(id) {
+      check(await sb.from('trips').delete().eq('id', id))
     },
   }
 }

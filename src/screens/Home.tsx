@@ -1,7 +1,9 @@
 import { BellRing, CalendarClock, ChevronRight, Fuel, Gauge, Plus, Receipt, Wrench } from 'lucide-react'
 import { consumption, costPerKm, inMonth, lastMonths, monthlyTotals, reminderStatus, sumBy } from '../lib/calc'
 import { brl, dateShort, km, monthKey, monthLong, num, relativeDays, today } from '../lib/format'
-import type { Entry, EntryKind, Reminder } from '../lib/types'
+import { NOT_FUEL, fuelLabel, type Entry, type EntryKind, type Reminder, type Trip } from '../lib/types'
+import { tripStats } from './Trips'
+import { MapPinned } from 'lucide-react'
 import { Legend, MonthlyChart } from '../components/Charts'
 import { Empty, KindIcon, Odometer } from '../components/ui'
 import { EntryRow } from './History'
@@ -12,6 +14,8 @@ interface Props {
   vehicle: VehicleWithRole
   driversVersion: number
   onAddDriver: () => void
+  trips: Trip[]
+  onOpenTrip: () => void
   entries: Entry[]
   reminders: Reminder[]
   odometer: number
@@ -21,7 +25,7 @@ interface Props {
   onEditReminder: (r: Reminder) => void
 }
 
-export function Home({ vehicle, driversVersion, onAddDriver, entries, reminders, odometer, onAdd, onEdit, onGo, onEditReminder }: Props) {
+export function Home({ vehicle, driversVersion, onAddDriver, trips, onOpenTrip, entries, reminders, odometer, onAdd, onEdit, onGo, onEditReminder }: Props) {
   const thisMonth = monthKey(today())
   const monthEntries = inMonth(entries, thisMonth)
   const spent = sumBy(monthEntries)
@@ -32,7 +36,9 @@ export function Home({ vehicle, driversVersion, onAddDriver, entries, reminders,
   const keys = lastMonths(6)
   const recentEntries = entries.filter((e) => keys.includes(monthKey(e.date)))
   const cpk = costPerKm(recentEntries)
-  const lastFuel = entries.find((e) => e.kind === 'fuel')
+  const lastFuel = entries.find((e) => e.kind === 'fuel' && !NOT_FUEL.has(e.fuel_type ?? ''))
+  const activeTrip = trips.find((t) => !t.end_date)
+  const activeStats = activeTrip ? tripStats(activeTrip, entries) : null
   const upcoming = reminders
     .map((r) => ({ r, s: reminderStatus(r, odometer) }))
     .sort((a, b) => b.s.progress - a.s.progress)
@@ -49,6 +55,23 @@ export function Home({ vehicle, driversVersion, onAddDriver, entries, reminders,
           <span className="hero-chip">Combustível {brl(sumBy(monthEntries, 'fuel'))}</span>
         </div>
       </section>
+
+      {activeTrip && activeStats && (
+        <button className="trip-banner" onClick={onOpenTrip}>
+          <span className="stat-icon k-amber" style={{ background: 'var(--surface)' }}>
+            <MapPinned size={19} />
+          </span>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <span className="hint" style={{ color: 'inherit' }}>
+              Em viagem · lançamentos novos entram nela
+            </span>
+            <strong>{activeTrip.name}</strong>
+          </span>
+          <span className="num" style={{ fontWeight: 800, color: 'var(--ink)' }}>
+            {brl(activeStats.total)}
+          </span>
+        </button>
+      )}
 
       <div className="quick">
         {(['fuel', 'expense', 'service'] as EntryKind[]).map((k) => (
@@ -91,6 +114,11 @@ export function Home({ vehicle, driversVersion, onAddDriver, entries, reminders,
             {lastFuel?.price_per_liter ? brl(lastFuel.price_per_liter) : '—'}
             <small>/L</small>
           </span>
+          {lastFuel && (
+            <span className="hint">
+              {fuelLabel(lastFuel.fuel_type)} · {dateShort(lastFuel.date)}
+            </span>
+          )}
         </div>
         <div className="stat">
           <span className="stat-icon k-service">
