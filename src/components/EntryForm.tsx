@@ -47,7 +47,8 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips,
   const [edited, setEdited] = useState<('amount' | 'liters' | 'price')[]>(entry ? ['amount', 'price'] : [])
   const suggested = FUEL_KINDS_BY_ENGINE[vehicle.fuel_type] ?? Object.keys(FUEL_KINDS)
   // Novo abastecimento já vem com o último combustível usado neste carro
-  const [fuelType, setFuelType] = useState(entry?.fuel_type ?? (lastFuelType && FUEL_KINDS[lastFuelType] ? lastFuelType : suggested[0]))
+  // "diesel" genérico é de lançamentos antigos: num novo, sugere S10 / o primeiro da lista
+  const [fuelType, setFuelType] = useState(entry?.fuel_type ?? (lastFuelType && FUEL_KINDS[lastFuelType] && lastFuelType !== 'diesel' ? lastFuelType : suggested[0]))
   const [showAllFuels, setShowAllFuels] = useState(false)
   const [tripId, setTripId] = useState<string>(entry ? entry.trip_id ?? '' : tripForDate(trips, today())?.id ?? '')
   const [tripTouched, setTripTouched] = useState(!!entry)
@@ -59,7 +60,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips,
   const [busy, setBusy] = useState(false)
 
   const isArla = kind === 'fuel' && NOT_FUEL.has(fuelType)
-  const extraFuels = Object.keys(FUEL_KINDS).filter((k) => !suggested.includes(k) && k !== 'diesel')
+  const extraFuels = Object.keys(FUEL_KINDS).filter((k) => !suggested.includes(k) && (k !== 'diesel' || fuelType === 'diesel'))
   const fuelOptions = [...suggested, ...(showAllFuels ? extraFuels : extraFuels.filter((k) => k === fuelType))]
 
   // Preenche o terceiro campo do abastecimento a partir dos dois últimos editados
