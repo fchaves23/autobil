@@ -509,3 +509,23 @@ a.btn { text-decoration: none; }
 .trip-stats strong { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trip-banner { display: flex; align-items: center; gap: 12px; background: var(--amber-soft); color: var(--amber-ink); border-radius: var(--radius); padding: 12px 14px; border: 0; text-align: left; width: 100%; }
 .trip-banner strong { display: block; color: var(--ink); }
+
+/* Fotos de perfil e acerto */
+.avatar-img { object-fit: cover; padding: 0; background: var(--surface-2); }
+.avatar-lg { width: 96px; height: 96px; font-size: 32px; }
+.settle-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settle-summary > div { display: flex; flex-direction: column; gap: 2px; background: var(--surface-2); border-radius: 12px; padding: 12px; }
+.settle-summary strong { font-size: 20px; font-weight: 800; }
+.transfer .row-end { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.profile-photo { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.profile-photo-btn { position: relative; background: none; border: 0; padding: 0; border-radius: 50%; }
+.profile-photo-badge { position: absolute; right: 0; bottom: 0; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: var(--primary-ink); border: 3px solid var(--surface); }
+
+.avatar-btn { background: none; border: 0; padding: 0; border-radius: 50%; display: block; }
+
+/* Sem internet */
+.offline-banner {
+  background: var(--ink); color: var(--bg);
+  font-size: 13px; font-weight: 600; text-align: center;
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+}

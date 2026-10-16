@@ -14,6 +14,7 @@ interface Props {
   vehicle: VehicleWithRole
   driversVersion: number
   onAddDriver: () => void
+  onSettle: () => void
   trips: Trip[]
   onOpenTrip: () => void
   entries: Entry[]
@@ -25,7 +26,7 @@ interface Props {
   onEditReminder: (r: Reminder) => void
 }
 
-export function Home({ vehicle, driversVersion, onAddDriver, trips, onOpenTrip, entries, reminders, odometer, onAdd, onEdit, onGo, onEditReminder }: Props) {
+export function Home({ vehicle, driversVersion, onAddDriver, onSettle, trips, onOpenTrip, entries, reminders, odometer, onAdd, onEdit, onGo, onEditReminder }: Props) {
   const thisMonth = monthKey(today())
   const monthEntries = inMonth(entries, thisMonth)
   const spent = sumBy(monthEntries)
@@ -175,7 +176,7 @@ export function Home({ vehicle, driversVersion, onAddDriver, trips, onOpenTrip, 
         </section>
       </div>
 
-      <DriversCard vehicle={vehicle} version={driversVersion} onAdd={onAddDriver} />
+      <DriversCard vehicle={vehicle} version={driversVersion} onAdd={onAddDriver} onSettle={onSettle} />
 
       <section className="card">
         <div className="section-head" style={{ marginBottom: 6 }}>

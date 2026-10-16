@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { ChartColumn, Flag, MapPinned, Pencil, Plus } from 'lucide-react'
+import { ChartColumn, Flag, HandCoins, MapPinned, Pencil, Plus } from 'lucide-react'
 import { api } from '../lib/api'
 import { consumption, daysInRange, sumBy } from '../lib/calc'
 import { brl, dateFull, num, today } from '../lib/format'
-import { NOT_FUEL, type Entry, type Trip } from '../lib/types'
+import { NOT_FUEL, type Entry, type Member, type Trip } from '../lib/types'
 import { DeleteButton, Empty, Field, Sheet } from '../components/ui'
 
 export interface TripStats {
@@ -34,7 +34,21 @@ export function tripStats(trip: Trip, entries: Entry[]): TripStats {
   }
 }
 
-function TripCard({ trip, stats, onEdit, onReport, onFinish }: { trip: Trip; stats: TripStats; onEdit: () => void; onReport: () => void; onFinish?: () => void }) {
+function TripCard({
+  trip,
+  stats,
+  onEdit,
+  onReport,
+  onSettle,
+  onFinish,
+}: {
+  trip: Trip
+  stats: TripStats
+  onEdit: () => void
+  onReport: () => void
+  onSettle: () => void
+  onFinish?: () => void
+}) {
   const active = !trip.end_date
   return (
     <section className={`card stack trip-card${active ? ' trip-active' : ''}`}>
@@ -75,6 +89,9 @@ function TripCard({ trip, stats, onEdit, onReport, onFinish }: { trip: Trip; sta
         <button className="btn btn-sm" onClick={onReport} disabled={stats.count === 0}>
           <ChartColumn size={16} /> Relatório da viagem
         </button>
+        <button className="btn btn-sm btn-ghost" onClick={onSettle} disabled={stats.count === 0}>
+          <HandCoins size={16} /> Acerto
+        </button>
         {active && onFinish && (
           <button className="btn btn-sm btn-ghost" onClick={onFinish}>
             <Flag size={16} /> Encerrar viagem
@@ -92,6 +109,7 @@ export function Trips({
   onAdd,
   onEdit,
   onReport,
+  onSettle,
   onChanged,
 }: {
   trips: Trip[]
@@ -99,6 +117,7 @@ export function Trips({
   onAdd: () => void
   onEdit: (t: Trip) => void
   onReport: (t: Trip) => void
+  onSettle: (t: Trip) => void
   onChanged: (msg: string) => void
 }) {
   const active = trips.filter((t) => !t.end_date)
@@ -138,6 +157,7 @@ export function Trips({
               stats={tripStats(t, entries)}
               onEdit={() => onEdit(t)}
               onReport={() => onReport(t)}
+              onSettle={() => onSettle(t)}
               onFinish={async () => {
                 await api.saveTrip({ ...t, end_date: today() < t.start_date ? t.start_date : today() }, t.id)
                 onChanged(`Viagem ${t.name} encerrada`)
@@ -146,7 +166,7 @@ export function Trips({
           ))}
           {past.length > 0 && <h2 className="section-title">Viagens anteriores</h2>}
           {past.map((t) => (
-            <TripCard key={t.id} trip={t} stats={tripStats(t, entries)} onEdit={() => onEdit(t)} onReport={() => onReport(t)} />
+            <TripCard key={t.id} trip={t} stats={tripStats(t, entries)} onEdit={() => onEdit(t)} onReport={() => onReport(t)} onSettle={() => onSettle(t)} />
           ))}
         </>
       )}
@@ -154,12 +174,27 @@ export function Trips({
   )
 }
 
-export function TripForm({ vehicleId, trip, onClose, onSaved }: { vehicleId: string; trip?: Trip; onClose: () => void; onSaved: (msg: string) => void }) {
+export function TripForm({
+  vehicleId,
+  trip,
+  members,
+  onClose,
+  onSaved,
+}: {
+  vehicleId: string
+  trip?: Trip
+  members: Member[]
+  onClose: () => void
+  onSaved: (msg: string) => void
+}) {
   const [name, setName] = useState(trip?.name ?? '')
   const [start, setStart] = useState(trip?.start_date ?? today())
   const [ongoing, setOngoing] = useState(trip ? !trip.end_date : true)
   const [end, setEnd] = useState(trip?.end_date ?? today())
   const [notes, setNotes] = useState(trip?.notes ?? '')
+  // Vazio = todas as pessoas do carro dividem os custos
+  const [participants, setParticipants] = useState<string[]>(trip?.participants?.length ? trip.participants : members.map((m) => m.user_id))
+  const toggle = (id: string) => setParticipants((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -172,10 +207,19 @@ export function TripForm({ vehicleId, trip, onClose, onSaved }: { vehicleId: str
           setError('')
           if (!name.trim()) return setError('Dê um nome à viagem, como "Sul do Brasil".')
           if (!ongoing && end < start) return setError('A data de fim precisa ser depois do início.')
+          if (members.length > 1 && participants.length === 0) return setError('Escolha pelo menos uma pessoa para dividir os custos.')
+          const all = members.every((m) => participants.includes(m.user_id))
           setBusy(true)
           try {
             await api.saveTrip(
-              { vehicle_id: vehicleId, name: name.trim(), start_date: start, end_date: ongoing ? null : end, notes: notes.trim() },
+              {
+                vehicle_id: vehicleId,
+                name: name.trim(),
+                start_date: start,
+                end_date: ongoing ? null : end,
+                notes: notes.trim(),
+                participants: all ? [] : participants,
+              },
               trip?.id,
             )
             onSaved(trip ? 'Viagem atualizada' : `Viagem ${name.trim()} criada`)
@@ -206,6 +250,18 @@ export function TripForm({ vehicleId, trip, onClose, onSaved }: { vehicleId: str
           </span>
           <input id="trip-ongoing" type="checkbox" checked={ongoing} onChange={(e) => setOngoing(e.target.checked)} />
         </label>
+        {members.length > 1 && (
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="label">Quem divide os custos</span>
+            <div className="chips">
+              {members.map((m) => (
+                <button key={m.user_id} type="button" className="chip" aria-pressed={participants.includes(m.user_id)} onClick={() => toggle(m.user_id)}>
+                  {m.name || m.email}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Field label="Anotações (opcional)">
           <input id="trip-notes" className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Roteiro, quem foi…" />
         </Field>

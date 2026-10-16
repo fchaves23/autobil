@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { UserPlus } from 'lucide-react'
+import { HandCoins, UserPlus } from 'lucide-react'
 import { api, type VehicleWithRole } from '../lib/api'
-import { initials } from '../lib/format'
+import { Avatar } from './Avatar'
 import type { Member } from '../lib/types'
 
 // Quadro do Início: quem dirige este carro + atalho para adicionar motorista
-export function DriversCard({ vehicle, version, onAdd }: { vehicle: VehicleWithRole; version: number; onAdd: () => void }) {
+export function DriversCard({ vehicle, version, onAdd, onSettle }: { vehicle: VehicleWithRole; version: number; onAdd: () => void; onSettle: () => void }) {
   const [members, setMembers] = useState<Member[] | null>(null)
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function DriversCard({ vehicle, version, onAdd }: { vehicle: VehicleWithR
         <div className="drivers">
           {members.map((m) => (
             <div key={m.user_id} className="driver">
-              <span className="avatar">{initials(m.name)}</span>
+              <Avatar name={m.name || m.email} url={m.avatar_url} />
               <span className="driver-name">{m.name || m.email}</span>
               <span className="hint">{m.role === 'owner' ? 'Dono' : 'Motorista'}</span>
             </div>
@@ -52,6 +52,11 @@ export function DriversCard({ vehicle, version, onAdd }: { vehicle: VehicleWithR
             </button>
           )}
         </div>
+      )}
+      {members !== null && members.length > 1 && (
+        <button className="btn btn-sm btn-ghost" onClick={onSettle} style={{ alignSelf: 'flex-start' }}>
+          <HandCoins size={16} /> Acerto de contas
+        </button>
       )}
       {isOwner && members !== null && drivers.length === 0 && (
         <p className="hint">Divida o carro com quem também dirige: cada um lança os próprios abastecimentos e gastos.</p>

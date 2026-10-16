@@ -5,6 +5,7 @@ export interface Profile {
   id: string
   name: string
   email: string
+  avatar_url?: string | null
 }
 
 export interface Vehicle {
@@ -26,6 +27,7 @@ export interface Member {
   role: Role
   name: string
   email: string
+  avatar_url?: string | null
 }
 
 export interface Invite {
@@ -51,6 +53,21 @@ export interface Entry {
   category: string
   description: string
   trip_id: string | null
+  paid_by: string | null // quem pagou (padrão: quem lançou)
+  split: boolean // entra na divisão de custos
+  pending?: boolean // lançado sem internet, aguardando envio
+  created_at: string
+}
+
+export interface Settlement {
+  id: string
+  vehicle_id: string
+  trip_id: string | null
+  from_user: string
+  to_user: string
+  amount: number
+  date: string
+  note: string
   created_at: string
 }
 
@@ -61,6 +78,7 @@ export interface Trip {
   start_date: string
   end_date: string | null
   notes: string
+  participants: string[] // vazio = todas as pessoas do carro
   created_at: string
 }
 
@@ -75,7 +93,8 @@ export interface Reminder {
   created_at: string
 }
 
-export type EntryInput = Omit<Entry, 'id' | 'created_at' | 'user_id' | 'user_name'>
+export type EntryInput = Omit<Entry, 'id' | 'created_at' | 'user_id' | 'user_name' | 'pending'>
+export type SettlementInput = Omit<Settlement, 'id' | 'created_at'>
 export type ReminderInput = Omit<Reminder, 'id' | 'created_at'>
 export type TripInput = Omit<Trip, 'id' | 'created_at'>
 export type VehicleInput = Pick<Vehicle, 'name' | 'brand' | 'model' | 'year' | 'plate' | 'fuel_type' | 'initial_odometer'>

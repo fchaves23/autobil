@@ -1,6 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import type { Api, VehicleWithRole } from './api'
-import type { Entry, Member, Profile, Reminder, Trip, Vehicle } from './types'
+import type { Entry, Member, Profile, Reminder, Settlement, Trip, Vehicle } from './types'
 
 // Converte erros do Supabase em mensagens que fazem sentido para quem usa o app.
 function friendly(message: string): string {
@@ -37,10 +37,12 @@ export function createSupabaseApi(url: string, key: string): Api {
 
   async function toProfile(user: User | null): Promise<Profile | null> {
     if (!user) return null
-    const { data } = await sb.from('profiles').select('id,name,email').eq('id', user.id).maybeSingle()
+    // select('*') funciona antes e depois da coluna avatar_url existir
+    const { data } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle()
     return {
       id: user.id,
       email: user.email ?? '',
+      avatar_url: (data?.avatar_url as string | null) ?? null,
       name: data?.name || (user.user_metadata?.name as string) || (user.email ?? '').split('@')[0],
     }
   }
@@ -108,6 +110,22 @@ export function createSupabaseApi(url: string, key: string): Api {
       check(await sb.from('profiles').update({ name }).eq('id', id))
     },
 
+    async uploadAvatar(image) {
+      const id = await uid()
+      const path = `${id}/avatar.jpg`
+      check(await sb.storage.from('avatars').upload(path, image, { contentType: 'image/jpeg', upsert: true, cacheControl: '3600' }))
+      // ?v= força o celular a buscar a foto nova em vez da antiga guardada
+      const url = `${sb.storage.from('avatars').getPublicUrl(path).data.publicUrl}?v=${Date.now()}`
+      check(await sb.from('profiles').update({ avatar_url: url }).eq('id', id))
+      return url
+    },
+
+    async removeAvatar() {
+      const id = await uid()
+      await sb.storage.from('avatars').remove([`${id}/avatar.jpg`])
+      check(await sb.from('profiles').update({ avatar_url: null }).eq('id', id))
+    },
+
     async listVehicles() {
       const id = await uid()
       const rows = check(
@@ -133,10 +151,16 @@ export function createSupabaseApi(url: string, key: string): Api {
 
     async listMembers(vehicleId) {
       const rows = check(
-        await sb.from('vehicle_members').select('user_id, role, profiles(name,email)').eq('vehicle_id', vehicleId),
-      ) as unknown as { user_id: string; role: Member['role']; profiles: { name: string; email: string } | null }[]
+        await sb.from('vehicle_members').select('user_id, role, profiles(*)').eq('vehicle_id', vehicleId),
+      ) as unknown as { user_id: string; role: Member['role']; profiles: { name: string; email: string; avatar_url?: string | null } | null }[]
       return rows
-        .map((r) => ({ user_id: r.user_id, role: r.role, name: r.profiles?.name ?? '', email: r.profiles?.email ?? '' }))
+        .map((r) => ({
+          user_id: r.user_id,
+          role: r.role,
+          name: r.profiles?.name ?? '',
+          email: r.profiles?.email ?? '',
+          avatar_url: r.profiles?.avatar_url ?? null,
+        }))
         .sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === 'owner' ? -1 : 1))
     },
 
@@ -197,14 +221,16 @@ export function createSupabaseApi(url: string, key: string): Api {
       const rows = check(
         await sb
           .from('entries')
-          .select('*, profiles(name)')
+          .select('*, author:profiles!entries_user_id_fkey(name)')
           .eq('vehicle_id', vehicleId)
           .order('date', { ascending: false })
           .order('created_at', { ascending: false }),
-      ) as unknown as (Entry & { profiles: { name: string } | null })[]
-      return rows.map(({ profiles, ...e }) => ({
+      ) as unknown as (Entry & { author: { name: string } | null })[]
+      return rows.map(({ author, ...e }) => ({
         ...e,
-        user_name: profiles?.name ?? '',
+        user_name: author?.name ?? '',
+        paid_by: e.paid_by ?? e.user_id,
+        split: e.split ?? true,
         amount: Number(e.amount),
         odometer: num(e.odometer),
         liters: num(e.liters),
@@ -213,7 +239,7 @@ export function createSupabaseApi(url: string, key: string): Api {
     },
 
     async saveEntry(input, id) {
-      if (id) check(await sb.from('entries').update(input).eq('id', id))
+      if (id) check(await sb.from('entries').upsert({ ...input, id }))
       else check(await sb.from('entries').insert(input))
     },
 
@@ -237,10 +263,26 @@ export function createSupabaseApi(url: string, key: string): Api {
       check(await sb.from('reminders').delete().eq('id', id))
     },
 
+    async listSettlements(vehicleId) {
+      const rows = check(
+        await sb.from('settlements').select('*').eq('vehicle_id', vehicleId).order('date', { ascending: false }),
+      ) as Settlement[]
+      return rows.map((r) => ({ ...r, amount: Number(r.amount) }))
+    },
+
+    async saveSettlement(input) {
+      check(await sb.from('settlements').insert(input))
+    },
+
+    async deleteSettlement(id) {
+      check(await sb.from('settlements').delete().eq('id', id))
+    },
+
     async listTrips(vehicleId) {
-      return check(
+      const rows = check(
         await sb.from('trips').select('*').eq('vehicle_id', vehicleId).order('start_date', { ascending: false }),
       ) as Trip[]
+      return rows.map((t) => ({ ...t, participants: t.participants ?? [] }))
     },
 
     async saveTrip(input, id) {

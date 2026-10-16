@@ -1,7 +1,7 @@
 // Modo demonstração: tudo fica no navegador (localStorage), com dados de exemplo.
 // Usado quando o .env.local não tem as chaves do Supabase.
 import type { Api, VehicleWithRole } from './api'
-import type { Entry, Invite, Profile, Reminder, Role, Trip, Vehicle } from './types'
+import type { Entry, Invite, Profile, Reminder, Role, Settlement, Trip, Vehicle } from './types'
 import { addDays, toISODate } from './format'
 
 interface Store {
@@ -13,10 +13,11 @@ interface Store {
   entries: Entry[]
   reminders: Reminder[]
   trips: Trip[]
+  settlements: Settlement[]
 }
 
 const KEY = 'autobil-demo-v1'
-const empty = (): Store => ({ user: null, profiles: [], vehicles: [], members: [], invites: [], entries: [], reminders: [], trips: [] })
+const empty = (): Store => ({ user: null, profiles: [], vehicles: [], members: [], invites: [], entries: [], reminders: [], trips: [], settlements: [] })
 
 function load(): Store {
   try {
@@ -76,11 +77,13 @@ function seed(user: Profile) {
 
   const start = addDays(new Date(), -240)
   let odo = v.initial_odometer
-  const add = (e: Partial<Entry> & Pick<Entry, 'kind' | 'date' | 'amount'>) =>
+  const add = (e: Partial<Entry> & Pick<Entry, 'kind' | 'date' | 'amount'>) => {
+    const who = rnd() > 0.7 ? driver.id : user.id
     store.entries.push({
-      id: id(), vehicle_id: v.id, user_id: rnd() > 0.7 ? driver.id : user.id, odometer: null, liters: null,
+      id: id(), vehicle_id: v.id, user_id: who, paid_by: who, split: true, odometer: null, liters: null,
       price_per_liter: null, fuel_type: null, full_tank: true, category: '', description: '', trip_id: null, created_at: now(), ...e,
     })
+  }
 
   for (let d = 0; d <= 240; d += 8 + Math.floor(rnd() * 5)) {
     const date = toISODate(addDays(start, d))
@@ -173,6 +176,28 @@ export function createDemoApi(): Api {
       save()
     },
 
+    async uploadAvatar(image) {
+      const url = await new Promise<string>((res) => {
+        const r = new FileReader()
+        r.onload = () => res(String(r.result))
+        r.readAsDataURL(image)
+      })
+      const u = me()
+      u.avatar_url = url
+      const p = store.profiles.find((x) => x.id === u.id)
+      if (p) p.avatar_url = url
+      save()
+      return url
+    },
+
+    async removeAvatar() {
+      const u = me()
+      u.avatar_url = null
+      const p = store.profiles.find((x) => x.id === u.id)
+      if (p) p.avatar_url = null
+      save()
+    },
+
     async listVehicles() {
       await wait()
       const uid = me().id
@@ -209,7 +234,7 @@ export function createDemoApi(): Api {
         .filter((m) => m.vehicle_id === vid)
         .map((m) => {
           const p = store.profiles.find((x) => x.id === m.user_id)
-          return { user_id: m.user_id, role: m.role, name: p?.name ?? '', email: p?.email ?? '' }
+          return { user_id: m.user_id, role: m.role, name: p?.name ?? '', email: p?.email ?? '', avatar_url: p?.avatar_url ?? null }
         })
         .sort((a, b) => (a.role === 'owner' ? -1 : b.role === 'owner' ? 1 : a.name.localeCompare(b.name)))
     },
@@ -281,8 +306,23 @@ export function createDemoApi(): Api {
     },
 
     async saveEntry(input, eid) {
-      if (eid) Object.assign(store.entries.find((e) => e.id === eid)!, input)
-      else store.entries.push({ ...input, id: id(), user_id: me().id, created_at: now() })
+      const found = eid ? store.entries.find((e) => e.id === eid) : undefined
+      if (found) Object.assign(found, input)
+      else store.entries.push({ ...input, id: eid ?? id(), user_id: me().id, created_at: now() })
+      save()
+    },
+
+    async listSettlements(vid) {
+      return store.settlements.filter((x) => x.vehicle_id === vid).sort((a, b) => b.date.localeCompare(a.date))
+    },
+
+    async saveSettlement(input) {
+      store.settlements.push({ ...input, id: id(), created_at: now() })
+      save()
+    },
+
+    async deleteSettlement(sid) {
+      store.settlements = store.settlements.filter((x) => x.id !== sid)
       save()
     },
 

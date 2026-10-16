@@ -1,5 +1,5 @@
 // Service worker mínimo: guarda o "casco" do app para abrir rápido e permitir instalação.
-const CACHE = 'autobil-v1'
+const CACHE = 'autobil-v2'
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/index.html', '/icon-192.png'])))
   self.skipWaiting()

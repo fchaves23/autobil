@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { api } from '../lib/api'
+import { deleteEntrySafe, saveEntrySafe } from '../lib/offline'
 import { formatIntInput, formatMoneyInput, num, parseNumber, today } from '../lib/format'
 import {
   EXPENSE_CATEGORIES,
@@ -12,6 +13,7 @@ import {
   type Entry,
   type EntryKind,
   type Reminder,
+  type Member,
   type Trip,
   type Vehicle,
 } from '../lib/types'
@@ -23,6 +25,8 @@ interface Props {
   entry?: Entry
   reminders: Reminder[]
   trips: Trip[]
+  members: Member[]
+  userId: string
   lastFuelType: string | null
   odometer: number
   onClose: () => void
@@ -37,7 +41,7 @@ export function tripForDate(trips: Trip[], date: string) {
   return trips.find((t) => t.start_date <= date && (!t.end_date || t.end_date >= date)) ?? null
 }
 
-export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips, lastFuelType, odometer, onClose, onSaved }: Props) {
+export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips, members, userId, lastFuelType, odometer, onClose, onSaved }: Props) {
   const [kind, setKind] = useState<EntryKind>(entry?.kind ?? initialKind)
   const [date, setDate] = useState(entry?.date ?? today())
   const [odo, setOdo] = useState(entry?.odometer != null ? formatIntInput(String(entry.odometer)) : '')
@@ -52,6 +56,8 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips,
   const [showAllFuels, setShowAllFuels] = useState(false)
   const [tripId, setTripId] = useState<string>(entry ? entry.trip_id ?? '' : tripForDate(trips, today())?.id ?? '')
   const [tripTouched, setTripTouched] = useState(!!entry)
+  const [paidBy, setPaidBy] = useState(entry?.paid_by ?? entry?.user_id ?? userId)
+  const [split, setSplit] = useState(entry?.split ?? true)
   const [fullTank, setFullTank] = useState(entry?.full_tank ?? true)
   const [category, setCategory] = useState(entry?.category ?? '')
   const [description, setDescription] = useState(entry?.description ?? '')
@@ -100,7 +106,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips,
     if (kind !== 'fuel' && !category) return setError('Escolha uma categoria.')
     setBusy(true)
     try {
-      await api.saveEntry(
+      const result = await saveEntrySafe(
         {
           vehicle_id: vehicle.id,
           kind,
@@ -114,15 +120,23 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips,
           category: kind === 'fuel' ? fuelLabel(fuelType) : category,
           description: description.trim(),
           trip_id: tripId || null,
+          paid_by: paidBy || null,
+          split,
         },
         entry?.id,
       )
       const rid = reminderId || (kind === 'service' && !entry ? matchingReminder : '')
       const r = reminders.find((x) => x.id === rid)
-      if (r) {
-        await api.saveReminder({ ...r, last_km: o ?? odometer, last_date: date }, r.id)
+      if (r && result === 'sent') {
+        await api.saveReminder({ ...r, last_km: o ?? odometer, last_date: date }, r.id).catch(() => {})
       }
-      onSaved(entry ? 'Lançamento atualizado' : `${KIND_LABEL[kind]} salvo`)
+      onSaved(
+        result === 'queued'
+          ? 'Sem internet: salvo no celular e enviado quando a conexão voltar'
+          : entry
+            ? 'Lançamento atualizado'
+            : `${KIND_LABEL[kind]} ${kind === 'expense' ? 'salva' : 'salvo'}`,
+      )
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
@@ -283,6 +297,24 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips,
           </Field>
         )}
 
+        {members.length > 1 && (
+          <div className="form-grid">
+            <Field label="Quem pagou">
+              <select id="entry-paid-by" className="select" value={paidBy} onChange={(e) => setPaidBy(e.target.value)}>
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.user_id === userId ? 'Eu' : m.name || m.email}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <label className="switch" style={{ alignSelf: 'end', height: 48, padding: '0 12px' }}>
+              <strong style={{ fontSize: 14 }}>Dividir</strong>
+              <input id="entry-split" type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+            </label>
+          </div>
+        )}
+
         <Field label="Observação (opcional)">
           <input id="entry-desc" className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={kind === 'fuel' ? 'Posto, cidade…' : 'Detalhes'} />
         </Field>
@@ -293,7 +325,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, trips,
           {entry && (
             <DeleteButton
               onConfirm={async () => {
-                await api.deleteEntry(entry.id)
+                await deleteEntrySafe(entry.id, vehicle.id)
                 onSaved('Lançamento excluído')
               }}
             />

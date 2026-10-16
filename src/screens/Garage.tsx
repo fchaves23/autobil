@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CarFront, Crown, KeyRound, LogOut, Mail, Pencil, Plus, Send, UserCog, UserMinus, UserPlus, X } from 'lucide-react'
 import { api, type VehicleWithRole } from '../lib/api'
-import { initials, km } from '../lib/format'
+import { km } from '../lib/format'
+import { Avatar } from '../components/Avatar'
 import { FUEL_TYPES, type Invite, type Member, type Profile } from '../lib/types'
 import { DeleteButton } from '../components/ui'
 import { DeleteVehicle } from '../components/Forms'
@@ -78,7 +79,7 @@ export function Garage(props: Props) {
       <section className="card stack">
         <h2 className="section-title">Sua conta</h2>
         <div className="row" style={{ borderBottom: 0, padding: 0 }}>
-          <span className="avatar">{initials(user.name)}</span>
+          <Avatar name={user.name} url={user.avatar_url} />
           <span className="row-main">
             <span className="row-title" style={{ display: 'block' }}>
               {user.name}
@@ -161,7 +162,7 @@ function VehicleDetails({ user, vehicle, onEditVehicle, onAddDriver, onChanged, 
           {members.map((m) => (
             <div key={m.user_id} className="member">
             <div className="row" style={{ borderBottom: 0 }}>
-              <span className="avatar avatar-sm">{initials(m.name)}</span>
+              <Avatar name={m.name || m.email} url={m.avatar_url} small />
               <span className="row-main">
                 <span className="row-title" style={{ display: 'block' }}>
                   {m.name || m.email}

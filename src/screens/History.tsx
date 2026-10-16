@@ -7,7 +7,7 @@ import { Empty, KindIcon } from '../components/ui'
 
 export function EntryRow({ entry: e, onClick }: { entry: Entry; onClick: () => void }) {
   const title = e.kind === 'fuel' ? `${e.category || 'Combustível'}${e.liters ? ` · ${num(e.liters, 1)} L` : ''}` : e.category || 'Outros'
-  const sub = [dateShort(e.date), e.odometer ? `${num(e.odometer)} km` : null, e.description || null, e.user_name ? `por ${e.user_name}` : null]
+  const sub = [e.pending ? '⏳ aguardando sinal' : null, dateShort(e.date), e.odometer ? `${num(e.odometer)} km` : null, e.description || null, e.user_name ? `por ${e.user_name}` : null]
     .filter(Boolean)
     .join(' · ')
   return (

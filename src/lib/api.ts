@@ -1,4 +1,4 @@
-import type { Entry, EntryInput, Invite, Member, Profile, Reminder, ReminderInput, Role, Trip, TripInput, Vehicle, VehicleInput } from './types'
+import type { Entry, EntryInput, Invite, Member, Profile, Reminder, ReminderInput, Role, Settlement, SettlementInput, Trip, TripInput, Vehicle, VehicleInput } from './types'
 import { createSupabaseApi } from './api-supabase'
 import { createDemoApi } from './api-demo'
 
@@ -18,6 +18,8 @@ export interface Api {
   onPasswordRecovery(cb: () => void): () => void
   signOut(): Promise<void>
   updateProfileName(name: string): Promise<void>
+  uploadAvatar(image: Blob): Promise<string>
+  removeAvatar(): Promise<void>
   // Veículos e motoristas
   listVehicles(): Promise<VehicleWithRole[]>
   createVehicle(input: VehicleInput): Promise<Vehicle>
@@ -35,6 +37,7 @@ export interface Api {
   acceptPendingInvites(): Promise<number>
   // Lançamentos e lembretes
   listEntries(vehicleId: string): Promise<Entry[]>
+  // Com id: cria com esse id ou atualiza (permite lançar sem internet e enviar depois)
   saveEntry(input: EntryInput, id?: string): Promise<void>
   deleteEntry(id: string): Promise<void>
   listReminders(vehicleId: string): Promise<Reminder[]>
@@ -44,6 +47,10 @@ export interface Api {
   listTrips(vehicleId: string): Promise<Trip[]>
   saveTrip(input: TripInput, id?: string): Promise<string>
   deleteTrip(id: string): Promise<void>
+  // Acerto de contas
+  listSettlements(vehicleId: string): Promise<Settlement[]>
+  saveSettlement(input: SettlementInput): Promise<void>
+  deleteSettlement(id: string): Promise<void>
 }
 
 const url = import.meta.env.VITE_SUPABASE_URL

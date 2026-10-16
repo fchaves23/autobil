@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BellRing, CarFront, ChartColumn, ChevronDown, House, KeyRound, List, LogOut, MapPinned, Plus, UserPlus, Warehouse } from 'lucide-react'
+import { BellRing, CarFront, ChartColumn, ChevronDown, HandCoins, House, KeyRound, List, LogOut, MapPinned, Plus, UserPlus, UserRound, Warehouse } from 'lucide-react'
 import { api, type VehicleWithRole } from './lib/api'
 import { currentOdometer } from './lib/calc'
-import { initials } from './lib/format'
+import { cacheGet, cacheSet, flushQueue, getQueue, isNetworkError, onQueueChange, withQueue } from './lib/offline'
 import { getPendingCode, setPendingCode } from './lib/pending-code'
-import type { Entry, EntryKind, Profile, Reminder, Trip } from './lib/types'
+import type { Entry, EntryKind, Profile, Reminder, Trip, Member, Settlement } from './lib/types'
 import { EntryForm } from './components/EntryForm'
 import { AddDriverSheet } from './components/AddDriver'
-import { JoinForm, NewPasswordForm, ProfileForm, ReminderForm, VehicleForm } from './components/Forms'
+import { JoinForm, NewPasswordForm, ReminderForm, VehicleForm } from './components/Forms'
+import { ProfileSheet } from './components/Profile'
+import { Avatar } from './components/Avatar'
+import { Settle } from './screens/Settle'
 import { Logo, Spinner } from './components/ui'
 import { Auth } from './screens/Auth'
 import { Garage } from './screens/Garage'
@@ -17,7 +20,7 @@ import { Reminders } from './screens/Reminders'
 import { Reports } from './screens/Reports'
 import { TripForm, Trips } from './screens/Trips'
 
-type Tab = 'home' | 'history' | 'trips' | 'reminders' | 'reports' | 'garage'
+type Tab = 'home' | 'history' | 'trips' | 'settle' | 'reminders' | 'reports' | 'garage'
 type SheetState =
   | { type: 'entry'; kind: EntryKind; entry?: Entry }
   | { type: 'reminder'; reminder?: Reminder }
@@ -42,6 +45,7 @@ const NAV: { tab: Tab; label: string; icon: typeof House }[] = [
   { tab: 'history', label: 'Histórico', icon: List },
   { tab: 'trips', label: 'Viagens', icon: MapPinned },
   { tab: 'reminders', label: 'Lembretes', icon: BellRing },
+  { tab: 'settle', label: 'Acerto', icon: HandCoins },
   { tab: 'reports', label: 'Relatórios', icon: ChartColumn },
   { tab: 'garage', label: 'Garagem', icon: Warehouse },
 ]
@@ -50,10 +54,14 @@ export default function App() {
   const [user, setUser] = useState<Profile | null | undefined>(undefined)
   const [vehicles, setVehicles] = useState<VehicleWithRole[] | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(readStored)
-  const [entries, setEntries] = useState<Entry[]>([])
+  const [rawEntries, setEntries] = useState<Entry[]>([])
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
+  const [queueCount, setQueueCount] = useState(() => getQueue().length)
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [trips, setTrips] = useState<Trip[]>([])
   const [reportTrip, setReportTrip] = useState<string | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
+  const [settlements, setSettlements] = useState<Settlement[]>([])
   const [tab, setTab] = useState<Tab>('home')
   const [sheet, setSheet] = useState<SheetState>(null)
   const [toast, setToast] = useState('')
@@ -70,7 +78,16 @@ export default function App() {
   }, [])
 
   const loadVehicles = useCallback(async () => {
-    const list = await api.listVehicles()
+    let list: VehicleWithRole[]
+    try {
+      list = await api.listVehicles()
+      cacheSet('vehicles', list)
+    } catch (err) {
+      // Sem internet: usa os carros guardados no celular
+      const cached = isNetworkError(err) ? cacheGet<VehicleWithRole[]>('vehicles') : null
+      if (!cached) throw err
+      list = cached
+    }
     setVehicles(list)
     setCurrentId((cur) => (cur && list.some((v) => v.id === cur) ? cur : list[0]?.id ?? null))
     return list
@@ -110,16 +127,33 @@ export default function App() {
       setEntries([])
       setReminders([])
       setTrips([])
+      setMembers([])
+      setSettlements([])
       return
     }
-    const [e, r, t] = await Promise.all([
-      api.listEntries(currentId),
-      api.listReminders(currentId),
-      api.listTrips(currentId).catch(() => [] as Trip[]), // sem a atualização 003 do banco, segue sem viagens
-    ])
+    type Bundle = [Entry[], Reminder[], Trip[], Member[], Settlement[]]
+    let bundle: Bundle
+    try {
+      bundle = await Promise.all([
+        api.listEntries(currentId),
+        api.listReminders(currentId),
+        api.listTrips(currentId).catch(() => [] as Trip[]), // sem a atualização 003 do banco, segue sem viagens
+        api.listMembers(currentId).catch(() => [] as Member[]),
+        api.listSettlements(currentId).catch(() => [] as Settlement[]), // idem 004
+      ])
+      cacheSet(`car-${currentId}`, bundle)
+    } catch (err) {
+      // Sem internet: mostra os últimos dados guardados deste carro
+      const cached = isNetworkError(err) ? cacheGet<Bundle>(`car-${currentId}`) : null
+      if (!cached) throw err
+      bundle = cached
+    }
+    const [e, r, t, m, st] = bundle
     setEntries(e)
     setReminders(r)
     setTrips(t)
+    setMembers(m)
+    setSettlements(st)
   }, [currentId])
 
   useEffect(() => {
@@ -131,12 +165,47 @@ export default function App() {
     loadVehicleData().catch((err) => setToast((err as Error).message))
   }, [currentId, loadVehicleData])
 
+  // Fila de lançamentos feitos sem internet
+  useEffect(() => {
+    const off = onQueueChange(() => setQueueCount(getQueue().length))
+    return () => {
+      off()
+    }
+  }, [])
+
+  const sync = useCallback(async () => {
+    if (!getQueue().length) return
+    const { sent, failed } = await flushQueue()
+    if (sent) setToast(sent === 1 ? '1 lançamento enviado' : `${sent} lançamentos enviados`)
+    if (failed.length) setToast(`Um lançamento não pôde ser enviado: ${failed[0]}`)
+    if (sent || failed.length) loadVehicleData().catch(() => {})
+  }, [loadVehicleData])
+
+  useEffect(() => {
+    const up = () => {
+      setOnline(true)
+      sync()
+    }
+    const down = () => setOnline(false)
+    window.addEventListener('online', up)
+    window.addEventListener('offline', down)
+    if (user) sync()
+    return () => {
+      window.removeEventListener('online', up)
+      window.removeEventListener('offline', down)
+    }
+  }, [user, sync])
+
   // Atualiza ao voltar para o app (outro motorista pode ter lançado algo)
   useEffect(() => {
-    const onVisible = () => document.visibilityState === 'visible' && user && loadVehicleData().catch(() => {})
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || !user) return
+      sync()
+      loadVehicleData().catch(() => {})
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [user, loadVehicleData])
+  }, [user, loadVehicleData, sync])
 
   useEffect(() => {
     if (!toast) return
@@ -145,6 +214,8 @@ export default function App() {
   }, [toast])
 
   const vehicle = vehicles?.find((v) => v.id === currentId) ?? null
+  // Lançamentos do banco + os que estão na fila (feitos sem internet)
+  const entries = useMemo(() => (currentId ? withQueue(rawEntries, currentId, user ?? null) : rawEntries), [rawEntries, currentId, user, queueCount])
   const odometer = useMemo(() => (vehicle ? currentOdometer(vehicle, entries) : 0), [vehicle, entries])
 
   async function afterSave(message: string, newVehicleId?: string) {
@@ -165,8 +236,16 @@ export default function App() {
   if (user === undefined) return <Spinner />
   if (user === null) return <Auth />
 
-  const demoBanner = api.mode === 'demo' && (
-    <div className="demo-banner">Modo demonstração · dados salvos só neste navegador</div>
+  const demoBanner = (
+    <>
+      {api.mode === 'demo' && <div className="demo-banner">Modo demonstração · dados salvos só neste navegador</div>}
+      {(!online || queueCount > 0) && (
+        <div className="offline-banner" role="status">
+          {!online ? 'Sem internet · você pode continuar lançando' : 'Conexão de volta · enviando'}
+          {queueCount > 0 && ` · ${queueCount} ${queueCount === 1 ? 'lançamento aguardando' : 'lançamentos aguardando'}`}
+        </div>
+      )}
+    </>
   )
 
   const sheets = (
@@ -179,6 +258,8 @@ export default function App() {
           reminders={reminders}
           trips={trips}
           lastFuelType={entries.find((x) => x.kind === 'fuel' && x.fuel_type)?.fuel_type ?? null}
+          members={members}
+          userId={user.id}
           odometer={odometer}
           onClose={() => setSheet(null)}
           onSaved={afterSave}
@@ -188,7 +269,7 @@ export default function App() {
         <ReminderForm vehicleId={vehicle.id} reminder={sheet.reminder} odometer={odometer} onClose={() => setSheet(null)} onSaved={afterSave} />
       )}
       {sheet?.type === 'trip' && vehicle && (
-        <TripForm vehicleId={vehicle.id} trip={sheet.trip} onClose={() => setSheet(null)} onSaved={afterSave} />
+        <TripForm vehicleId={vehicle.id} trip={sheet.trip} members={members} onClose={() => setSheet(null)} onSaved={afterSave} />
       )}
       {sheet?.type === 'vehicle' && <VehicleForm vehicle={sheet.vehicle} onClose={() => setSheet(null)} onSaved={afterSave} />}
       {sheet?.type === 'join' && (
@@ -211,13 +292,14 @@ export default function App() {
         />
       )}
       {sheet?.type === 'profile' && (
-        <ProfileForm
-          name={user.name}
+        <ProfileSheet
+          user={user}
           onClose={() => setSheet(null)}
           onSaved={async (m) => {
-            setSheet(null)
             setToast(m)
             setUser(await api.getUser())
+            setDriversVersion((n) => n + 1)
+            loadVehicleData().catch(() => {})
           }}
         />
       )}
@@ -354,8 +436,8 @@ export default function App() {
                 )}
               </div>
               <div style={{ position: 'relative' }}>
-                <button className="avatar" onClick={() => setMenu(menu === 'user' ? null : 'user')} aria-label="Sua conta" aria-expanded={menu === 'user'}>
-                  {initials(user.name)}
+                <button className="avatar-btn" onClick={() => setMenu(menu === 'user' ? null : 'user')} aria-label="Sua conta" aria-expanded={menu === 'user'}>
+                  <Avatar name={user.name} url={user.avatar_url} />
                 </button>
                 {menu === 'user' && (
                   <div className="menu">
@@ -363,6 +445,17 @@ export default function App() {
                       <strong style={{ display: 'block' }}>{user.name}</strong>
                       <span className="hint">{user.email}</span>
                     </div>
+                    <button
+                      onClick={() => {
+                        setMenu(null)
+                        setSheet({ type: 'profile' })
+                      }}
+                    >
+                      <UserRound size={17} /> Meu perfil
+                    </button>
+                    <button onClick={() => go('settle')}>
+                      <HandCoins size={17} /> Acerto de contas
+                    </button>
                     <button onClick={() => go('reminders')}>
                       <BellRing size={17} /> Lembretes
                     </button>
@@ -384,6 +477,7 @@ export default function App() {
                 vehicle={vehicle}
                 driversVersion={driversVersion}
                 onAddDriver={() => setSheet({ type: 'driver', vehicle })}
+                onSettle={() => go('settle')}
                 entries={entries}
                 reminders={reminders}
                 trips={trips}
@@ -417,6 +511,22 @@ export default function App() {
                   go('reports')
                   setReportTrip(trip.id)
                 }}
+                onSettle={(trip) => {
+                  go('settle')
+                  setReportTrip(trip.id)
+                }}
+                onChanged={(m) => afterSave(m)}
+              />
+            )}
+            {tab === 'settle' && vehicle && (
+              <Settle
+                vehicleId={vehicle.id}
+                userId={user.id}
+                entries={entries}
+                trips={trips}
+                settlements={settlements}
+                members={members}
+                initialScope={reportTrip}
                 onChanged={(m) => afterSave(m)}
               />
             )}
