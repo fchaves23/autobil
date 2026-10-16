@@ -312,6 +312,25 @@ export function createDemoApi(): Api {
       save()
     },
 
+    async isAdmin() {
+      return false
+    },
+    async adminOverview() {
+      throw new Error('Painel indisponível no modo demonstração.')
+    },
+    async adminUsers() {
+      throw new Error('Painel indisponível no modo demonstração.')
+    },
+    async adminVehicles() {
+      throw new Error('Painel indisponível no modo demonstração.')
+    },
+    async adminSetUserDisabled() {
+      throw new Error('Painel indisponível no modo demonstração.')
+    },
+    async adminDeleteUser() {
+      throw new Error('Painel indisponível no modo demonstração.')
+    },
+
     async listSettlements(vid) {
       return store.settlements.filter((x) => x.vehicle_id === vid).sort((a, b) => b.date.localeCompare(a.date))
     },

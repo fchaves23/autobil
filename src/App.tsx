@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BellRing, CarFront, ChartColumn, ChevronDown, HandCoins, House, KeyRound, List, LogOut, MapPinned, Plus, UserPlus, UserRound, Warehouse } from 'lucide-react'
+import { BellRing, CarFront, ChartColumn, ChevronDown, HandCoins, House, KeyRound, List, LogOut, MapPinned, Plus, ShieldCheck, UserPlus, UserRound, Warehouse } from 'lucide-react'
 import { api, type VehicleWithRole } from './lib/api'
 import { currentOdometer } from './lib/calc'
 import { cacheGet, cacheSet, flushQueue, getQueue, isNetworkError, onQueueChange, withQueue } from './lib/offline'
@@ -11,6 +11,7 @@ import { JoinForm, NewPasswordForm, ReminderForm, VehicleForm } from './componen
 import { ProfileSheet } from './components/Profile'
 import { Avatar } from './components/Avatar'
 import { Settle } from './screens/Settle'
+import { Admin } from './screens/Admin'
 import { Logo, Spinner } from './components/ui'
 import { Auth } from './screens/Auth'
 import { Garage } from './screens/Garage'
@@ -20,7 +21,7 @@ import { Reminders } from './screens/Reminders'
 import { Reports } from './screens/Reports'
 import { TripForm, Trips } from './screens/Trips'
 
-type Tab = 'home' | 'history' | 'trips' | 'settle' | 'reminders' | 'reports' | 'garage'
+type Tab = 'home' | 'history' | 'trips' | 'settle' | 'reminders' | 'reports' | 'garage' | 'admin'
 type SheetState =
   | { type: 'entry'; kind: EntryKind; entry?: Entry }
   | { type: 'reminder'; reminder?: Reminder }
@@ -67,9 +68,20 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [menu, setMenu] = useState<'vehicle' | 'user' | null>(null)
   const [recovering, setRecovering] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminOnboarding, setAdminOnboarding] = useState(false)
   const [driversVersion, setDriversVersion] = useState(0)
 
   useEffect(() => api.onPasswordRecovery(() => setRecovering(true)), [])
+
+  // Painel do administrador só aparece para e-mails cadastrados como admin no banco
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false)
+      return
+    }
+    api.isAdmin().then(setIsAdmin).catch(() => setIsAdmin(false))
+  }, [user])
 
   // Sessão
   useEffect(() => {
@@ -324,6 +336,23 @@ export default function App() {
   if (vehicles === null) return <Spinner />
 
   // Primeiro acesso: sem carros
+  if (vehicles.length === 0 && adminOnboarding && isAdmin) {
+    return (
+      <>
+        {demoBanner}
+        <div className="container">
+          <div style={{ paddingTop: 16 }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => setAdminOnboarding(false)}>
+              ← Voltar
+            </button>
+          </div>
+          <Admin currentUserId={user.id} onToast={setToast} />
+        </div>
+        {sheets}
+      </>
+    )
+  }
+
   if (vehicles.length === 0) {
     return (
       <>
@@ -359,6 +388,11 @@ export default function App() {
                 </span>
               </span>
             </button>
+            {isAdmin && (
+              <button className="btn btn-ghost" onClick={() => setAdminOnboarding(true)}>
+                <ShieldCheck size={17} /> Painel do administrador
+              </button>
+            )}
             <button className="btn btn-ghost" onClick={() => api.signOut()}>
               <LogOut size={17} /> Sair
             </button>
@@ -380,6 +414,11 @@ export default function App() {
               <Icon size={19} /> {label}
             </button>
           ))}
+          {isAdmin && (
+            <button className="side-btn" aria-current={tab === 'admin' ? 'page' : undefined} onClick={() => go('admin')}>
+              <ShieldCheck size={19} /> Administrador
+            </button>
+          )}
           <button className="btn side-new" onClick={() => setSheet({ type: 'entry', kind: 'fuel' })}>
             <Plus size={18} /> Novo lançamento
           </button>
@@ -462,6 +501,11 @@ export default function App() {
                     <button onClick={() => go('garage')}>
                       <Warehouse size={17} /> Garagem e motoristas
                     </button>
+                    {isAdmin && (
+                      <button onClick={() => go('admin')}>
+                        <ShieldCheck size={17} /> Painel do administrador
+                      </button>
+                    )}
                     <button onClick={() => api.signOut()}>
                       <LogOut size={17} /> Sair
                     </button>
@@ -518,6 +562,7 @@ export default function App() {
                 onChanged={(m) => afterSave(m)}
               />
             )}
+            {tab === 'admin' && isAdmin && <Admin currentUserId={user.id} onToast={setToast} />}
             {tab === 'settle' && vehicle && (
               <Settle
                 vehicleId={vehicle.id}

@@ -1,4 +1,5 @@
 import type { Entry, EntryInput, Invite, Member, Profile, Reminder, ReminderInput, Role, Settlement, SettlementInput, Trip, TripInput, Vehicle, VehicleInput } from './types'
+import type { AdminOverview, AdminUser, AdminVehicle } from './admin-types'
 import { createSupabaseApi } from './api-supabase'
 import { createDemoApi } from './api-demo'
 
@@ -51,6 +52,13 @@ export interface Api {
   listSettlements(vehicleId: string): Promise<Settlement[]>
   saveSettlement(input: SettlementInput): Promise<void>
   deleteSettlement(id: string): Promise<void>
+  // Painel do administrador (só funciona para e-mails em app_admins)
+  isAdmin(): Promise<boolean>
+  adminOverview(): Promise<AdminOverview>
+  adminUsers(): Promise<AdminUser[]>
+  adminVehicles(): Promise<AdminVehicle[]>
+  adminSetUserDisabled(userId: string, disabled: boolean): Promise<void>
+  adminDeleteUser(userId: string): Promise<void>
 }
 
 const url = import.meta.env.VITE_SUPABASE_URL

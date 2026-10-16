@@ -1,4 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js'
+import type { AdminOverview, AdminUser, AdminVehicle } from './admin-types'
 import type { Api, VehicleWithRole } from './api'
 import type { Entry, Member, Profile, Reminder, Settlement, Trip, Vehicle } from './types'
 
@@ -276,6 +277,34 @@ export function createSupabaseApi(url: string, key: string): Api {
 
     async deleteSettlement(id) {
       check(await sb.from('settlements').delete().eq('id', id))
+    },
+
+    async isAdmin() {
+      const { data, error } = await sb.rpc('is_app_admin')
+      return !error && data === true
+    },
+
+    async adminOverview() {
+      const o = check(await sb.rpc('admin_overview')) as AdminOverview
+      return { ...o, total_spent: Number(o.total_spent) }
+    },
+
+    async adminUsers() {
+      const rows = check(await sb.rpc('admin_users')) as AdminUser[]
+      return rows.map((u) => ({ ...u, vehicles: Number(u.vehicles), entries: Number(u.entries) }))
+    },
+
+    async adminVehicles() {
+      const rows = check(await sb.rpc('admin_vehicles')) as AdminVehicle[]
+      return rows.map((v) => ({ ...v, people: Number(v.people), entries: Number(v.entries), total_spent: Number(v.total_spent) }))
+    },
+
+    async adminSetUserDisabled(userId, disabled) {
+      check(await sb.rpc('admin_set_user_disabled', { uid: userId, disabled }))
+    },
+
+    async adminDeleteUser(userId) {
+      check(await sb.rpc('admin_delete_user', { uid: userId }))
     },
 
     async listTrips(vehicleId) {
