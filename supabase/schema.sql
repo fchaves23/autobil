@@ -346,3 +346,6 @@ create policy reminders_all on public.reminders for all
 grant execute on function public.join_vehicle_by_code(text) to authenticated;
 grant execute on function public.accept_pending_invites() to authenticated;
 grant execute on function public.regenerate_invite_code(uuid) to authenticated;
+
+-- Depois deste arquivo, rode também, em ordem, os arquivos da pasta supabase/migrations/
+-- (002_donos.sql: vários donos por carro e permissões de motorista).

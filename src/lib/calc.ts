@@ -1,5 +1,5 @@
 import type { Entry, EntryKind, Reminder, Vehicle } from './types'
-import { addMonths, daysBetween, monthKey, parseDate, toISODate } from './format'
+import { addDays, addMonths, daysBetween, monthKey, parseDate, toISODate } from './format'
 
 export function currentOdometer(vehicle: Vehicle, entries: Entry[]) {
   return entries.reduce((max, e) => (e.odometer && e.odometer > max ? e.odometer : max), vehicle.initial_odometer || 0)
@@ -123,4 +123,59 @@ export function reminderStatus(r: Reminder, odometer: number): ReminderStatus {
   else if ((kmLeft !== null && kmLeft <= 1000) || (daysLeft !== null && daysLeft <= 30) || progress >= 0.85) state = 'soon'
 
   return { nextKm, nextDate, kmLeft, daysLeft, progress, state }
+}
+
+// ---------- Relatórios por período ----------
+export type Group = 'day' | 'week' | 'month'
+
+export interface Bucket extends MonthTotals {
+  label: string // rótulo curto no eixo
+  long: string // título no balão
+}
+
+const MONTHS_SHORT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+const dm = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+
+// Segunda-feira da semana da data
+export function weekStart(d: Date) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7))
+  return x
+}
+
+export function inRange(entries: Entry[], from: string, to: string) {
+  return entries.filter((e) => e.date >= from && e.date <= to)
+}
+
+export function daysInRange(from: string, to: string) {
+  return daysBetween(parseDate(from), parseDate(to)) + 1
+}
+
+export function buckets(entries: Entry[], from: string, to: string, group: Group): Bucket[] {
+  const start = parseDate(from)
+  const end = parseDate(to)
+  const out: Bucket[] = []
+  let cur = group === 'week' ? weekStart(start) : group === 'month' ? new Date(start.getFullYear(), start.getMonth(), 1) : start
+  let guard = 0
+  while (cur <= end && guard++ < 400) {
+    const next = group === 'day' ? addDays(cur, 1) : group === 'week' ? addDays(cur, 7) : addMonths(cur, 1)
+    const a = toISODate(cur < start ? start : cur)
+    const lastDay = addDays(next, -1)
+    const b = toISODate(lastDay > end ? end : lastDay)
+    const list = entries.filter((e) => e.date >= a && e.date <= b)
+    const fuel = sumBy(list, 'fuel')
+    const expense = sumBy(list, 'expense')
+    const service = sumBy(list, 'service')
+    const label = group === 'month' ? MONTHS_SHORT[cur.getMonth()] : dm(cur)
+    const long =
+      group === 'day'
+        ? `${cur.getDate()} de ${MONTHS_LONG[cur.getMonth()]}`
+        : group === 'week'
+          ? `Semana de ${dm(parseDate(a))} a ${dm(parseDate(b))}`
+          : `${MONTHS_LONG[cur.getMonth()][0].toUpperCase()}${MONTHS_LONG[cur.getMonth()].slice(1)} de ${cur.getFullYear()}`
+    out.push({ key: toISODate(cur), label, long, fuel, expense, service, total: fuel + expense + service })
+    cur = next
+  }
+  return out
 }

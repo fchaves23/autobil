@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CarFront, KeyRound, LogOut, Mail, Pencil, Plus, Send, UserMinus, UserPlus, X } from 'lucide-react'
+import { CarFront, Crown, KeyRound, LogOut, Mail, Pencil, Plus, Send, UserCog, UserMinus, UserPlus, X } from 'lucide-react'
 import { api, type VehicleWithRole } from '../lib/api'
 import { initials, km } from '../lib/format'
 import { FUEL_TYPES, type Invite, type Member, type Profile } from '../lib/types'
@@ -105,6 +105,21 @@ function VehicleDetails({ user, vehicle, onEditVehicle, onAddDriver, onChanged, 
   const [invites, setInvites] = useState<Invite[]>([])
   const [error, setError] = useState('')
   const [resending, setResending] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const otherOwners = members.some((m) => m.role === 'owner' && m.user_id !== user.id)
+
+  async function act(userId: string, fn: () => Promise<void>) {
+    setBusy(userId)
+    setError('')
+    try {
+      await fn()
+      await load()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const load = useCallback(async () => {
     setMembers(await api.listMembers(vehicle.id))
@@ -125,24 +140,27 @@ function VehicleDetails({ user, vehicle, onEditVehicle, onAddDriver, onChanged, 
               {[vehicle.brand, vehicle.model, vehicle.year, FUEL_TYPES[vehicle.fuel_type]].filter(Boolean).join(' · ') || 'Sem detalhes'}
             </p>
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={() => onEditVehicle(vehicle)}>
-            <Pencil size={15} /> Editar
-          </button>
+          {isOwner && (
+            <button className="btn btn-sm btn-ghost" onClick={() => onEditVehicle(vehicle)}>
+              <Pencil size={15} /> Editar
+            </button>
+          )}
         </div>
       </section>
 
       <section className="card stack">
         <div className="section-head">
-          <h2 className="section-title">Motoristas</h2>
+          <h2 className="section-title">Pessoas do carro</h2>
           <span className="hint">{members.length} com acesso</span>
         </div>
         <p className="hint" style={{ marginTop: -8 }}>
-          Todos os motoristas veem e lançam abastecimentos, despesas e serviços deste carro.
+          <strong>Donos</strong> editam o carro e gerenciam as pessoas. <strong>Motoristas</strong> lançam gastos e veem relatórios e lembretes.
         </p>
 
         <div className="list">
           {members.map((m) => (
-            <div key={m.user_id} className="row">
+            <div key={m.user_id} className="member">
+            <div className="row" style={{ borderBottom: 0 }}>
               <span className="avatar avatar-sm">{initials(m.name)}</span>
               <span className="row-main">
                 <span className="row-title" style={{ display: 'block' }}>
@@ -154,18 +172,36 @@ function VehicleDetails({ user, vehicle, onEditVehicle, onAddDriver, onChanged, 
                 </span>
               </span>
               <span className={`badge ${m.role === 'owner' ? 'ok' : 'neutral'}`}>{m.role === 'owner' ? 'Dono' : 'Motorista'}</span>
-              {isOwner && m.role !== 'owner' && (
-                <button
-                  className="icon-btn"
-                  aria-label={`Remover ${m.name}`}
-                  onClick={async () => {
-                    await api.removeMember(vehicle.id, m.user_id)
-                    await load()
-                    onChanged(`${m.name || 'Motorista'} removido`)
-                  }}
-                >
-                  <UserMinus size={17} />
-                </button>
+            </div>
+              {isOwner && m.user_id !== user.id && (
+                <div className="member-actions">
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    disabled={busy === m.user_id}
+                    onClick={() =>
+                      act(m.user_id, async () => {
+                        const role = m.role === 'owner' ? 'driver' : 'owner'
+                        await api.setMemberRole(vehicle.id, m.user_id, role)
+                        onChanged(role === 'owner' ? `${m.name || 'Pessoa'} agora é dono` : `${m.name || 'Pessoa'} agora é motorista`)
+                      })
+                    }
+                  >
+                    {m.role === 'owner' ? <UserCog size={15} /> : <Crown size={15} />}
+                    {m.role === 'owner' ? 'Tornar motorista' : 'Tornar dono'}
+                  </button>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    disabled={busy === m.user_id}
+                    onClick={() =>
+                      act(m.user_id, async () => {
+                        await api.removeMember(vehicle.id, m.user_id)
+                        onChanged(`${m.name || 'Pessoa'} removido do carro`)
+                      })
+                    }
+                  >
+                    <UserMinus size={15} /> Remover
+                  </button>
+                </div>
               )}
             </div>
           ))}
@@ -236,23 +272,29 @@ function VehicleDetails({ user, vehicle, onEditVehicle, onAddDriver, onChanged, 
 
       <section className="card stack">
         <h2 className="section-title">Zona de risco</h2>
-        {isOwner ? (
+        {isOwner && (
           <>
-            <p className="hint">Excluir o carro apaga todos os lançamentos e lembretes dele, para todos os motoristas.</p>
+            <p className="hint">Excluir o carro apaga todos os lançamentos e lembretes dele, para todas as pessoas.</p>
             <DeleteVehicle vehicle={vehicle} onDeleted={() => onChanged('Carro excluído')} />
           </>
-        ) : (
+        )}
+        {(!isOwner || otherOwners) && (
           <>
             <p className="hint">Ao sair, você deixa de ver este carro. Os lançamentos que você fez continuam lá.</p>
             <DeleteButton
               label="Sair deste carro"
               onConfirm={async () => {
-                await api.removeMember(vehicle.id, user.id)
-                onChanged('Você saiu do carro')
+                try {
+                  await api.removeMember(vehicle.id, user.id)
+                  onChanged('Você saiu do carro')
+                } catch (err) {
+                  setError((err as Error).message)
+                }
               }}
             />
           </>
         )}
+        {isOwner && !otherOwners && <p className="hint">Você é o único dono. Para sair do carro, torne outra pessoa dona antes.</p>}
       </section>
     </>
   )

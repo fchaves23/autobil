@@ -35,7 +35,9 @@ function topRounded(x: number, y: number, w: number, h: number, r: number) {
   return `M${x},${y + h} V${y + rr} Q${x},${y} ${x + rr},${y} H${x + w - rr} Q${x + w},${y} ${x + w},${y + rr} V${y + h} Z`
 }
 
-export function MonthlyChart({ data, height = 220 }: { data: MonthTotals[]; height?: number }) {
+type BarDatum = MonthTotals & { label?: string; long?: string }
+
+export function MonthlyChart({ data, height = 220 }: { data: BarDatum[]; height?: number }) {
   const [ref, width] = useWidth<HTMLDivElement>()
   const [hover, setHover] = useState<number | null>(null)
   const m = { top: 12, right: 4, bottom: 26, left: 48 }
@@ -43,7 +45,8 @@ export function MonthlyChart({ data, height = 220 }: { data: MonthTotals[]; heig
   const ih = height - m.top - m.bottom
   const { max, step } = niceMax(Math.max(...data.map((d) => d.total), 0))
   const band = data.length ? iw / data.length : 0
-  const bw = Math.min(40, band * 0.58)
+  const bw = Math.max(2, Math.min(40, band * 0.58))
+  const labelEvery = Math.max(1, Math.ceil(42 / Math.max(1, band)))
   const y = (v: number) => m.top + ih - (v / max) * ih
   const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step)
 
@@ -89,9 +92,11 @@ export function MonthlyChart({ data, height = 220 }: { data: MonthTotals[]; heig
                     <rect key={s.key} x={cx - bw / 2} y={y1 + gap} width={bw} height={hh} fill={s.color} />
                   )
                 })}
-                <text x={cx} y={height - 8} textAnchor="middle" style={{ fontWeight: hover === i ? 700 : 500 }}>
-                  {monthShort(d.key)}
-                </text>
+                {(i % labelEvery === 0 || hover === i) && (
+                  <text x={cx} y={height - 8} textAnchor="middle" style={{ fontWeight: hover === i ? 700 : 500 }}>
+                    {d.label ?? monthShort(d.key)}
+                  </text>
+                )}
               </g>
             )
           })}
@@ -100,7 +105,7 @@ export function MonthlyChart({ data, height = 220 }: { data: MonthTotals[]; heig
       {h && hover !== null && (
         <div className="tooltip" style={{ left: Math.min(Math.max(m.left + band * hover + band / 2, 80), width - 80), top: y(h.total) }}>
           <div style={{ marginBottom: 4 }}>
-            <b>{monthLong(h.key)}</b>
+            <b>{h.long ?? monthLong(h.key)}</b>
           </div>
           {SERIES.map((s) => (
             <div className="t-row" key={s.key}>

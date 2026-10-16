@@ -488,3 +488,14 @@ a.btn { text-decoration: none; }
 .driver-name { font-size: 13px; font-weight: 700; max-width: 76px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .driver-add .avatar { background: var(--primary-soft); color: var(--primary); border: 1.5px dashed var(--primary); }
 .driver-add .driver-name { color: var(--primary); }
+
+/* Pessoas do carro */
+.member { border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.member:last-child { border-bottom: 0; }
+.member-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 48px; }
+
+/* Filtros dos relatórios */
+.filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.filter-row .segmented { flex: 1 1 220px; }
+.filter-row .select { flex: 1 1 180px; width: auto; }
+.segmented button:disabled { opacity: .4; cursor: default; }

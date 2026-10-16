@@ -144,6 +144,10 @@ export function createSupabaseApi(url: string, key: string): Api {
       check(await sb.from('vehicle_members').delete().eq('vehicle_id', vehicleId).eq('user_id', userId))
     },
 
+    async setMemberRole(vehicleId, userId, role) {
+      check(await sb.rpc('set_member_role', { vid: vehicleId, uid: userId, new_role: role }))
+    },
+
     async joinByCode(code) {
       return check(await sb.rpc('join_vehicle_by_code', { code })) as string
     },

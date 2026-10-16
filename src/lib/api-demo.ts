@@ -49,6 +49,12 @@ function me(): Profile {
   if (!store.user) throw new Error('Entre para continuar.')
   return store.user
 }
+function isOwner(vid: string) {
+  return store.members.some((m) => m.vehicle_id === vid && m.user_id === me().id && m.role === 'owner')
+}
+function otherOwner(vid: string, uid: string) {
+  return store.members.some((m) => m.vehicle_id === vid && m.user_id !== uid && m.role === 'owner')
+}
 function isMember(vid: string) {
   return store.members.some((m) => m.vehicle_id === vid && m.user_id === me().id)
 }
@@ -184,7 +190,7 @@ export function createDemoApi(): Api {
     },
 
     async updateVehicle(vid, input) {
-      if (!isMember(vid)) throw new Error('Você não tem acesso a este carro.')
+      if (!isOwner(vid)) throw new Error('Só os donos do carro podem editar os dados dele.')
       Object.assign(store.vehicles.find((v) => v.id === vid)!, input)
       save()
     },
@@ -208,7 +214,18 @@ export function createDemoApi(): Api {
     },
 
     async removeMember(vid, uid) {
+      const m = store.members.find((x) => x.vehicle_id === vid && x.user_id === uid)
+      if (m?.role === 'owner' && !otherOwner(vid, uid)) throw new Error('O carro precisa de pelo menos um dono. Torne outra pessoa dono antes.')
       store.members = store.members.filter((m) => !(m.vehicle_id === vid && m.user_id === uid))
+      save()
+    },
+
+    async setMemberRole(vid, uid, role) {
+      if (!isOwner(vid)) throw new Error('Só um dono do carro pode mudar quem é dono.')
+      const m = store.members.find((x) => x.vehicle_id === vid && x.user_id === uid)
+      if (!m) throw new Error('Essa pessoa não está neste carro.')
+      if (m.role === 'owner' && role === 'driver' && !otherOwner(vid, uid)) throw new Error('O carro precisa de pelo menos um dono. Torne outra pessoa dono antes.')
+      m.role = role
       save()
     },
 

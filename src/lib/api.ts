@@ -25,6 +25,7 @@ export interface Api {
   deleteVehicle(id: string): Promise<void>
   listMembers(vehicleId: string): Promise<Member[]>
   removeMember(vehicleId: string, userId: string): Promise<void>
+  setMemberRole(vehicleId: string, userId: string, role: Role): Promise<void>
   joinByCode(code: string): Promise<string>
   regenerateCode(vehicleId: string): Promise<string>
   listInvites(vehicleId: string): Promise<Invite[]>
