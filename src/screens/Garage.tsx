@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CarFront, Copy, KeyRound, LogOut, Mail, MessageCircle, Pencil, Plus, RefreshCw, Send, UserMinus, X } from 'lucide-react'
+import { CarFront, KeyRound, LogOut, Mail, Pencil, Plus, Send, UserMinus, UserPlus, X } from 'lucide-react'
 import { api, type VehicleWithRole } from '../lib/api'
 import { initials, km } from '../lib/format'
 import { FUEL_TYPES, type Invite, type Member, type Profile } from '../lib/types'
 import { DeleteButton } from '../components/ui'
-import { inviteLink } from '../lib/pending-code'
 import { DeleteVehicle } from '../components/Forms'
 
 interface Props {
@@ -17,6 +16,8 @@ interface Props {
   onJoin: () => void
   onEditVehicle: (v: VehicleWithRole) => void
   onEditProfile: () => void
+  onAddDriver: (v: VehicleWithRole) => void
+  driversVersion: number
   onChanged: (msg: string) => void
   onSignOut: () => void
 }
@@ -98,16 +99,12 @@ export function Garage(props: Props) {
   )
 }
 
-function VehicleDetails({ user, vehicle, onEditVehicle, onChanged }: Props & { vehicle: VehicleWithRole }) {
+function VehicleDetails({ user, vehicle, onEditVehicle, onAddDriver, onChanged, driversVersion }: Props & { vehicle: VehicleWithRole }) {
   const isOwner = vehicle.role === 'owner'
   const [members, setMembers] = useState<Member[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
-  const [code, setCode] = useState(vehicle.invite_code)
-  const [email, setEmail] = useState('')
-  const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
-  const [share, setShare] = useState<{ email: string; status: 'sending' | 'sent' | 'failed'; error?: string } | null>(null)
-  const shareTo = share?.email ?? null
+  const [resending, setResending] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setMembers(await api.listMembers(vehicle.id))
@@ -116,35 +113,7 @@ function VehicleDetails({ user, vehicle, onEditVehicle, onChanged }: Props & { v
 
   useEffect(() => {
     load().catch((e) => setError((e as Error).message))
-  }, [load])
-
-  useEffect(() => setCode(vehicle.invite_code), [vehicle.invite_code])
-
-  const shareText = `Você foi convidado para o ${vehicle.name} no Autobil. Abra o link, crie sua conta e o carro já aparece: ${inviteLink(code)} (código ${code})`
-
-  // Mensagem para avisar também por WhatsApp (ou quando o e-mail automático falhar)
-  const emailText = (addr: string) =>
-    `Oi! Te adicionei como motorista do ${vehicle.name} no Autobil. Abra ${inviteLink(code)} e crie sua conta com o e-mail ${addr}. O carro já vai aparecer pra você.`
-
-  async function sendEmail(inviteId: string, to: string) {
-    setShare({ email: to, status: 'sending' })
-    try {
-      await api.sendInviteEmail(inviteId)
-      setShare({ email: to, status: 'sent' })
-    } catch (err) {
-      setShare({ email: to, status: 'failed', error: (err as Error).message })
-    }
-  }
-
-  async function copy(text: string, done: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      setMsg(done)
-    } catch {
-      setMsg('Não deu para copiar automaticamente. Selecione o código e copie.')
-    }
-    setTimeout(() => setMsg(''), 2500)
-  }
+  }, [load, driversVersion])
 
   return (
     <>
@@ -203,140 +172,65 @@ function VehicleDetails({ user, vehicle, onEditVehicle, onChanged }: Props & { v
         </div>
 
         {isOwner ? (
-          <>
-            <div className="stack" style={{ gap: 8 }}>
-              <span className="label">Convidar com código</span>
-              <div className="code-box">
-                <strong aria-label="Código de convite">{code}</strong>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="icon-btn" aria-label="Copiar convite" onClick={() => copy(shareText, 'Convite copiado. Cole no WhatsApp.')}>
-                    <Copy size={17} />
+          <button className="btn btn-block" onClick={() => onAddDriver(vehicle)}>
+            <UserPlus size={18} /> Adicionar motorista
+          </button>
+        ) : (
+          <p className="hint">Para adicionar outro motorista, peça ao dono do carro.</p>
+        )}
+
+        {isOwner && invites.length > 0 && (
+          <div className="stack" style={{ gap: 4 }}>
+            <span className="label">Convites aguardando cadastro</span>
+            <div className="list">
+              {invites.map((i) => (
+                <div key={i.id} className="row">
+                  <span className="row-icon k-amber">
+                    <Mail size={17} />
+                  </span>
+                  <span className="row-main">
+                    <span className="row-title" style={{ display: 'block' }}>
+                      {i.email}
+                    </span>
+                    <span className="row-sub" style={{ display: 'block' }}>
+                      {resending === i.id ? 'Enviando e-mail…' : 'Ainda não criou a conta'}
+                    </span>
+                  </span>
+                  <button
+                    className="icon-btn"
+                    aria-label={`Reenviar convite para ${i.email}`}
+                    title="Reenviar e-mail"
+                    disabled={resending !== null}
+                    onClick={async () => {
+                      setResending(i.id)
+                      try {
+                        await api.sendInviteEmail(i.id)
+                        onChanged(`Convite reenviado para ${i.email}`)
+                      } catch (err) {
+                        setError((err as Error).message)
+                      } finally {
+                        setResending(null)
+                      }
+                    }}
+                  >
+                    <Send size={17} />
                   </button>
                   <button
                     className="icon-btn"
-                    aria-label="Gerar novo código"
-                    title="Gerar novo código (o atual deixa de valer)"
+                    aria-label={`Cancelar convite de ${i.email}`}
                     onClick={async () => {
-                      setCode(await api.regenerateCode(vehicle.id))
-                      onChanged('Novo código gerado')
+                      await api.deleteInvite(i.id)
+                      await load()
                     }}
                   >
-                    <RefreshCw size={17} />
+                    <X size={17} />
                   </button>
                 </div>
-              </div>
-              <span className="hint">Copie e mande pelo WhatsApp: o link já leva o código. Ou a pessoa digita o código na tela de login.</span>
+              ))}
             </div>
+          </div>
+        )}
 
-            <form
-              className="stack"
-              style={{ gap: 8 }}
-              onSubmit={async (e) => {
-                e.preventDefault()
-                setError('')
-                if (!/^\S+@\S+\.\S+$/.test(email.trim())) return setError('Digite um e-mail válido.')
-                try {
-                  const to = email.trim().toLowerCase()
-                  const inviteId = await api.createInvite(vehicle.id, to)
-                  setEmail('')
-                  await load()
-                  await sendEmail(inviteId, to)
-                } catch (err) {
-                  setError((err as Error).message)
-                }
-              }}
-            >
-              <label className="label" htmlFor="invite-email">
-                Convidar por e-mail
-              </label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input id="invite-email" className="input" type="email" placeholder="motorista@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-                <button className="btn" aria-label="Convidar">
-                  <Mail size={17} />
-                </button>
-              </div>
-              <span className="hint">A pessoa recebe um e-mail com o link. Quando criar a conta com este e-mail, o carro aparece pra ela.</span>
-            </form>
-
-            {share && shareTo && (
-              <div className="invite-box" role="status">
-                <div className="section-head" style={{ alignItems: 'center' }}>
-                  <span className="label">
-                    {share.status === 'sending' && `Enviando e-mail para ${shareTo}…`}
-                    {share.status === 'sent' && `✓ Convite enviado para ${shareTo}`}
-                    {share.status === 'failed' && `Avise ${shareTo}`}
-                  </span>
-                  <button className="icon-btn" style={{ width: 32, height: 32 }} aria-label="Fechar" onClick={() => setShare(null)}>
-                    <X size={16} />
-                  </button>
-                </div>
-                {share.status === 'failed' && (
-                  <p className="hint">O e-mail automático não saiu ({share.error}). Mande a mensagem abaixo por outro caminho:</p>
-                )}
-                {share.status === 'sent' && <p className="hint">Se não chegar em alguns minutos, peça para olhar o spam ou avise também pelo WhatsApp:</p>}
-                {share.status === 'failed' && <p style={{ fontSize: 14 }}>{emailText(shareTo)}</p>}
-                {share.status !== 'sending' && (
-                <div className="share-actions">
-                  <a className="btn btn-sm" href={`https://wa.me/?text=${encodeURIComponent(emailText(shareTo))}`} target="_blank" rel="noreferrer">
-                    <MessageCircle size={16} /> WhatsApp
-                  </a>
-                  <a
-                    className="btn btn-sm btn-ghost"
-                    href={`mailto:${shareTo}?subject=${encodeURIComponent(`Convite para o ${vehicle.name} no Autobil`)}&body=${encodeURIComponent(emailText(shareTo))}`}
-                  >
-                    <Mail size={16} /> E-mail
-                  </a>
-                  <button className="btn btn-sm btn-ghost" onClick={() => copy(emailText(shareTo), 'Mensagem copiada.')}>
-                    <Copy size={16} /> Copiar
-                  </button>
-                </div>
-                )}
-              </div>
-            )}
-
-            {invites.length > 0 && (
-              <div className="list">
-                {invites.map((i) => (
-                  <div key={i.id} className="row">
-                    <span className="row-icon k-amber">
-                      <Mail size={17} />
-                    </span>
-                    <span className="row-main">
-                      <span className="row-title" style={{ display: 'block' }}>
-                        {i.email}
-                      </span>
-                      <span className="row-sub" style={{ display: 'block' }}>
-                        Aguardando cadastro
-                      </span>
-                    </span>
-                    <button
-                      className="icon-btn"
-                      aria-label={`Reenviar convite para ${i.email}`}
-                      title="Reenviar e-mail"
-                      disabled={share?.status === 'sending'}
-                      onClick={() => sendEmail(i.id, i.email)}
-                    >
-                      <Send size={17} />
-                    </button>
-                    <button
-                      className="icon-btn"
-                      aria-label="Cancelar convite"
-                      onClick={async () => {
-                        await api.deleteInvite(i.id)
-                        if (shareTo === i.email) setShare(null)
-                        await load()
-                      }}
-                    >
-                      <X size={17} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        ) : null}
-
-        {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
       </section>
 

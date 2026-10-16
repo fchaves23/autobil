@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { api } from '../lib/api'
-import { num, parseNumber, today } from '../lib/format'
+import { formatIntInput, formatMoneyInput, num, parseNumber, today } from '../lib/format'
 import { EXPENSE_CATEGORIES, FUEL_TYPES, KIND_LABEL, SERVICE_CATEGORIES, type Entry, type EntryKind, type Reminder, type Vehicle } from '../lib/types'
 import { DeleteButton, Field, KindIcon, Sheet } from './ui'
 
@@ -20,10 +20,10 @@ const str = (n: number | null | undefined, digits?: number) =>
 export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odometer, onClose, onSaved }: Props) {
   const [kind, setKind] = useState<EntryKind>(entry?.kind ?? initialKind)
   const [date, setDate] = useState(entry?.date ?? today())
-  const [odo, setOdo] = useState(str(entry?.odometer))
-  const [amount, setAmount] = useState(str(entry?.amount, 2))
+  const [odo, setOdo] = useState(entry?.odometer != null ? formatIntInput(String(entry.odometer)) : '')
+  const [amount, setAmount] = useState(entry ? formatMoneyInput(String(entry.amount)) : '')
   const [liters, setLiters] = useState(str(entry?.liters))
-  const [price, setPrice] = useState(str(entry?.price_per_liter))
+  const [price, setPrice] = useState(entry?.price_per_liter != null ? formatMoneyInput(String(entry.price_per_liter), 3) : '')
   const [edited, setEdited] = useState<('amount' | 'liters' | 'price')[]>(entry ? ['amount', 'price'] : [])
   const defaultFuel = vehicle.fuel_type === 'flex' ? 'gasolina' : vehicle.fuel_type
   const [fuelType, setFuelType] = useState(entry?.fuel_type ?? defaultFuel)
@@ -46,9 +46,9 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
     const p = parseNumber(vals.price)
     const target = (['amount', 'liters', 'price'] as const).find((f) => !order.includes(f))
     if (order.length === 2) {
-      if (target === 'amount' && l && p) vals.amount = str(l * p, 2)
+      if (target === 'amount' && l && p) vals.amount = formatMoneyInput(String(+(l * p).toFixed(2)))
       if (target === 'liters' && a && p) vals.liters = str(+(a / p).toFixed(2))
-      if (target === 'price' && a && l) vals.price = str(+(a / l).toFixed(3))
+      if (target === 'price' && a && l) vals.price = formatMoneyInput(String(+(a / l).toFixed(3)), 3)
     }
     setAmount(vals.amount)
     setLiters(vals.liters)
@@ -150,7 +150,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
           </Field>
           <Field label={kind === 'fuel' ? 'Hodômetro' : 'Hodômetro (opcional)'}>
             <div className="input-wrap">
-              <input id="entry-odo" className="input has-suffix num" inputMode="numeric" placeholder={num(odometer)} value={odo} onChange={(e) => setOdo(e.target.value)} />
+              <input id="entry-odo" className="input has-suffix num" inputMode="numeric" placeholder={num(odometer)} value={odo} onChange={(e) => setOdo(e.target.value)} onBlur={() => setOdo(formatIntInput(odo))} />
               <span className="suffix">km</span>
             </div>
           </Field>
@@ -160,7 +160,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
               <Field label="Preço por litro">
                 <div className="input-wrap">
                   <span className="prefix">R$</span>
-                  <input id="entry-price" className="input has-prefix num" inputMode="decimal" placeholder="5,99" value={price} onChange={(e) => onFuelField('price', e.target.value)} />
+                  <input id="entry-price" className="input has-prefix num" inputMode="decimal" placeholder="5,99" value={price} onChange={(e) => onFuelField('price', e.target.value.replace('.', ','))} onBlur={() => setPrice(formatMoneyInput(price, 3))} />
                 </div>
               </Field>
               <Field label="Litros">
@@ -182,6 +182,7 @@ export function EntryForm({ vehicle, kind: initialKind, entry, reminders, odomet
                 placeholder="0,00"
                 value={amount}
                 onChange={(e) => (kind === 'fuel' ? onFuelField('amount', e.target.value) : setAmount(e.target.value))}
+                onBlur={() => setAmount(formatMoneyInput(amount))}
                 style={{ fontWeight: 700 }}
               />
             </div>

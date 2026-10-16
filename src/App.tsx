@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BellRing, CarFront, ChartColumn, ChevronDown, House, KeyRound, List, LogOut, Plus, Warehouse } from 'lucide-react'
+import { BellRing, CarFront, ChartColumn, ChevronDown, House, KeyRound, List, LogOut, Plus, UserPlus, Warehouse } from 'lucide-react'
 import { api, type VehicleWithRole } from './lib/api'
 import { currentOdometer } from './lib/calc'
 import { initials } from './lib/format'
 import { getPendingCode, setPendingCode } from './lib/pending-code'
 import type { Entry, EntryKind, Profile, Reminder } from './lib/types'
 import { EntryForm } from './components/EntryForm'
+import { AddDriverSheet } from './components/AddDriver'
 import { JoinForm, NewPasswordForm, ProfileForm, ReminderForm, VehicleForm } from './components/Forms'
 import { Logo, Spinner } from './components/ui'
 import { Auth } from './screens/Auth'
@@ -22,6 +23,7 @@ type SheetState =
   | { type: 'vehicle'; vehicle?: VehicleWithRole }
   | { type: 'join' }
   | { type: 'profile' }
+  | { type: 'driver'; vehicle: VehicleWithRole }
   | null
 
 const VEHICLE_KEY = 'autobil-current-vehicle'
@@ -52,6 +54,7 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [menu, setMenu] = useState<'vehicle' | 'user' | null>(null)
   const [recovering, setRecovering] = useState(false)
+  const [driversVersion, setDriversVersion] = useState(0)
 
   useEffect(() => api.onPasswordRecovery(() => setRecovering(true)), [])
 
@@ -177,6 +180,16 @@ export default function App() {
           onJoined={(id) => {
             afterSave('Pronto! Você entrou no carro.', id)
             setTab('home')
+          }}
+        />
+      )}
+      {sheet?.type === 'driver' && (
+        <AddDriverSheet
+          vehicle={sheet.vehicle}
+          onClose={() => {
+            setSheet(null)
+            setDriversVersion((n) => n + 1)
+            loadVehicles().catch(() => {})
           }}
         />
       )}
@@ -306,7 +319,18 @@ export default function App() {
                         {v.plate && <span className="hint">{v.plate}</span>}
                       </button>
                     ))}
-                    <button onClick={() => go('garage')} style={{ borderTop: '1px solid var(--line)', borderRadius: 0, marginTop: 4 }}>
+                    {vehicle?.role === 'owner' && (
+                      <button
+                        onClick={() => {
+                          setMenu(null)
+                          setSheet({ type: 'driver', vehicle })
+                        }}
+                        style={{ borderTop: '1px solid var(--line)', borderRadius: 0, marginTop: 4 }}
+                      >
+                        <UserPlus size={17} /> Adicionar motorista
+                      </button>
+                    )}
+                    <button onClick={() => go('garage')} style={vehicle?.role === 'owner' ? undefined : { borderTop: '1px solid var(--line)', borderRadius: 0, marginTop: 4 }}>
                       <Warehouse size={17} /> Gerenciar garagem
                     </button>
                   </div>
@@ -341,6 +365,8 @@ export default function App() {
             {vehicle && tab === 'home' && (
               <Home
                 vehicle={vehicle}
+                driversVersion={driversVersion}
+                onAddDriver={() => setSheet({ type: 'driver', vehicle })}
                 entries={entries}
                 reminders={reminders}
                 odometer={odometer}
@@ -373,6 +399,8 @@ export default function App() {
                 onAddVehicle={() => setSheet({ type: 'vehicle' })}
                 onJoin={() => setSheet({ type: 'join' })}
                 onEditVehicle={(v) => setSheet({ type: 'vehicle', vehicle: v })}
+                onAddDriver={(v) => setSheet({ type: 'driver', vehicle: v })}
+                driversVersion={driversVersion}
                 onEditProfile={() => setSheet({ type: 'profile' })}
                 onChanged={(m) => afterSave(m)}
                 onSignOut={() => api.signOut()}

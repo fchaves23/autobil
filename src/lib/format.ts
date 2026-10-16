@@ -92,3 +92,17 @@ export const initials = (name: string) =>
     .slice(0, 2)
     .map((p) => p[0]!.toUpperCase())
     .join('') || '?'
+
+// Ao sair de um campo de valor: "300" vira "300,00", "1500" vira "1.500,00", "5.99" vira "5,99"
+export function formatMoneyInput(s: string, maxDecimals = 2): string {
+  const n = parseNumber(s)
+  if (n === null) return s
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: maxDecimals })
+}
+
+// Ao sair do campo de km: "192300" vira "192.300"
+export function formatIntInput(s: string): string {
+  const n = parseNumber(s)
+  if (n === null) return s
+  return Math.round(n).toLocaleString('pt-BR')
+}

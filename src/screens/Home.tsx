@@ -1,13 +1,17 @@
 import { BellRing, CalendarClock, ChevronRight, Fuel, Gauge, Plus, Receipt, Wrench } from 'lucide-react'
 import { consumption, costPerKm, inMonth, lastMonths, monthlyTotals, reminderStatus, sumBy } from '../lib/calc'
 import { brl, dateShort, km, monthKey, monthLong, num, relativeDays, today } from '../lib/format'
-import type { Entry, EntryKind, Reminder, Vehicle } from '../lib/types'
+import type { Entry, EntryKind, Reminder } from '../lib/types'
 import { Legend, MonthlyChart } from '../components/Charts'
 import { Empty, KindIcon, Odometer } from '../components/ui'
 import { EntryRow } from './History'
+import { DriversCard } from '../components/DriversCard'
+import type { VehicleWithRole } from '../lib/api'
 
 interface Props {
-  vehicle: Vehicle
+  vehicle: VehicleWithRole
+  driversVersion: number
+  onAddDriver: () => void
   entries: Entry[]
   reminders: Reminder[]
   odometer: number
@@ -17,7 +21,7 @@ interface Props {
   onEditReminder: (r: Reminder) => void
 }
 
-export function Home({ vehicle, entries, reminders, odometer, onAdd, onEdit, onGo, onEditReminder }: Props) {
+export function Home({ vehicle, driversVersion, onAddDriver, entries, reminders, odometer, onAdd, onEdit, onGo, onEditReminder }: Props) {
   const thisMonth = monthKey(today())
   const monthEntries = inMonth(entries, thisMonth)
   const spent = sumBy(monthEntries)
@@ -142,6 +146,8 @@ export function Home({ vehicle, entries, reminders, odometer, onAdd, onEdit, onG
           )}
         </section>
       </div>
+
+      <DriversCard vehicle={vehicle} version={driversVersion} onAdd={onAddDriver} />
 
       <section className="card">
         <div className="section-head" style={{ marginBottom: 6 }}>
